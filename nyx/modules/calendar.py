@@ -125,18 +125,24 @@ class CalendarModule:
         end = self._require_string_argument(plan.arguments, "end")
         description = self._optional_string_argument(plan.arguments, "description")
         location = self._optional_string_argument(plan.arguments, "location")
+        calendar_id = self._optional_string_argument(plan.arguments, "calendar_id")
         event = await self.calendar_service.create_event(
             summary=summary,
             start_iso=start,
             end_iso=end,
             description=description,
             location=location,
+            calendar_id=calendar_id,
         )
         response_text = (
             f"Created calendar event '{event.summary}' from {event.start} to {event.end}."
         )
         if event.location:
             response_text += f" Location: {event.location}."
+        if event.calendar_name:
+            response_text += f" Calendar: {event.calendar_name}."
+        elif event.calendar_id:
+            response_text += f" Calendar ID: {event.calendar_id}."
         return self._result_from_provider(provider_result, response_text, plan.operation)
 
     def _planner_context(self) -> dict[str, Any]:
@@ -148,6 +154,10 @@ class CalendarModule:
         return {
             "module": "calendar",
             "provider": self.config.calendar.provider,
+            "auth_mode": self.config.calendar.auth_mode,
+            "default_calendar_id": self.config.calendar.default_calendar_id,
+            "calendar_ids": list(self.config.calendar.calendar_ids),
+            "include_all_calendars": self.config.calendar.include_all_calendars,
             "current_time": now.isoformat(),
             "today_start": today_start.isoformat(),
             "today_end": tomorrow_start.isoformat(),
@@ -164,11 +174,13 @@ class CalendarModule:
             "Do not return markdown. Allowed operations: list_events, create_event, reject. "
             "Use list_events for agenda/calendar lookup requests and create_event for scheduling requests. "
             "All timestamps must be ISO 8601 strings with timezone offsets. "
+            "If the request names a specific calendar, include calendar_id in the create_event arguments. "
+            "Agenda requests may span multiple visible calendars when Nyx is configured to do so. "
             "If the request is not a calendar action, return "
             '{"operation":"reject","arguments":{"reason":"..."},"rationale":"..."}.\n\n'
             "Argument rules:\n"
             '- list_events: {"start": str, "end": str, "limit": int}\n'
-            '- create_event: {"summary": str, "start": str, "end": str, "description": str|null, "location": str|null}\n'
+            '- create_event: {"summary": str, "start": str, "end": str, "description": str|null, "location": str|null, "calendar_id": str|null}\n'
             '- reject: {"reason": str}\n\n'
             f"User request: {request_text}"
         )
@@ -219,8 +231,12 @@ class CalendarModule:
             header += " (offline .ical cache)"
         header += ":"
         lines = [header]
+        show_calendar_name = len({event.calendar_id for event in events}) > 1
         for event in events:
             line = f"- {event.start} -> {event.end}: {event.summary}"
+            if show_calendar_name:
+                calendar_label = event.calendar_name or event.calendar_id
+                line += f" [{calendar_label}]"
             if event.location:
                 line += f" @ {event.location}"
             lines.append(line)

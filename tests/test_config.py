@@ -79,6 +79,30 @@ vision_timeout_seconds = 300
     assert provider.options["vision_timeout_seconds"] == 300
 
 
+def test_calendar_config_supports_adc_and_multi_calendar_settings(tmp_path: Path) -> None:
+    """Calendar config should preserve auth-mode and multi-calendar options."""
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[calendar]
+provider = "google"
+auth_mode = "adc"
+default_calendar_id = "work@example.com"
+calendar_ids = ["primary", "team@example.com"]
+include_all_calendars = true
+""".strip()
+    )
+
+    config = load_config(config_path)
+
+    assert config.calendar.provider == "google"
+    assert config.calendar.auth_mode == "adc"
+    assert config.calendar.default_calendar_id == "work@example.com"
+    assert config.calendar.calendar_ids == ["primary", "team@example.com"]
+    assert config.calendar.include_all_calendars is True
+
+
 def test_unknown_keys_raise_descriptive_error(tmp_path: Path) -> None:
     """Unknown config keys should fail fast with useful context."""
 

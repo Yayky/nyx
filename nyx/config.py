@@ -23,7 +23,14 @@ _SECTION_KEYS: dict[str, set[str]] = {
     "rag": {"db_path", "embed_model"},
     "web": {"searxng_url", "brave_api_key", "fallback_timeout_seconds"},
     "git": {"use_ssh", "gh_cli"},
-    "calendar": {"provider", "credentials_path"},
+    "calendar": {
+        "provider",
+        "credentials_path",
+        "auth_mode",
+        "default_calendar_id",
+        "calendar_ids",
+        "include_all_calendars",
+    },
     "skills": {"disabled"},
     "monitors": {"poll_interval_seconds"},
     "ui": {
@@ -114,6 +121,10 @@ class CalendarConfig:
 
     provider: str
     credentials_path: Path
+    auth_mode: str
+    default_calendar_id: str
+    calendar_ids: list[str]
+    include_all_calendars: bool
 
 
 @dataclass(slots=True)
@@ -297,6 +308,10 @@ def _default_config_dict() -> dict[str, Any]:
         "calendar": {
             "provider": "google",
             "credentials_path": "~/.config/nyx/google_credentials.json",
+            "auth_mode": "auto",
+            "default_calendar_id": "primary",
+            "calendar_ids": [],
+            "include_all_calendars": False,
         },
         "skills": {
             "disabled": [],
@@ -423,6 +438,10 @@ def _build_config(data: dict[str, Any], config_path: Path) -> NyxConfig:
         calendar=CalendarConfig(
             provider=data["calendar"]["provider"],
             credentials_path=_expand_path(data["calendar"]["credentials_path"]),
+            auth_mode=data["calendar"]["auth_mode"],
+            default_calendar_id=data["calendar"]["default_calendar_id"],
+            calendar_ids=list(data["calendar"]["calendar_ids"]),
+            include_all_calendars=data["calendar"]["include_all_calendars"],
         ),
         skills=SkillsConfig(disabled=list(data["skills"]["disabled"])),
         monitors=MonitorsConfig(**data["monitors"]),

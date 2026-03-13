@@ -70,6 +70,7 @@ class FakeCalendarService:
         end_iso: str,
         description: str | None = None,
         location: str | None = None,
+        calendar_id: str | None = None,
     ) -> CalendarEvent:
         """Return the configured create response."""
 
@@ -79,6 +80,7 @@ class FakeCalendarService:
             "end_iso": end_iso,
             "description": description,
             "location": location,
+            "calendar_id": calendar_id,
         }
         assert self.create_response is not None
         return self.create_response
@@ -124,6 +126,8 @@ async def test_ical_cache_round_trips_events(tmp_path: Path) -> None:
         [
             CachedCalendarEvent(
                 event_id="evt-1",
+                calendar_id="primary",
+                calendar_name="Primary",
                 summary="Review Nyx roadmap",
                 start="2026-03-14T10:00:00+00:00",
                 end="2026-03-14T10:30:00+00:00",
@@ -138,6 +142,8 @@ async def test_ical_cache_round_trips_events(tmp_path: Path) -> None:
     assert len(events) == 1
     assert events[0].summary == "Review Nyx roadmap"
     assert events[0].location == "Home office"
+    assert events[0].calendar_id == "primary"
+    assert events[0].calendar_name == "Primary"
 
 
 @pytest.mark.anyio
@@ -150,6 +156,8 @@ async def test_calendar_service_uses_ical_cache_when_google_unavailable(tmp_path
         [
             CachedCalendarEvent(
                 event_id="evt-1",
+                calendar_id="shared@example.com",
+                calendar_name="Shared Team Calendar",
                 summary="Offline review",
                 start="2026-03-14T10:00:00+00:00",
                 end="2026-03-14T11:00:00+00:00",
@@ -189,6 +197,8 @@ async def test_calendar_module_lists_events_and_marks_fallback_degraded(tmp_path
             [
                 CalendarEvent(
                     event_id="evt-1",
+                    calendar_id="shared@example.com",
+                    calendar_name="Shared Team Calendar",
                     summary="Review Nyx roadmap",
                     start="2026-03-14T10:00:00+00:00",
                     end="2026-03-14T10:30:00+00:00",
@@ -224,13 +234,15 @@ async def test_calendar_module_creates_event(tmp_path: Path) -> None:
             provider_name="codex-cli",
             provider_type="subprocess-cli",
             model_name=None,
-            text='{"operation":"create_event","arguments":{"summary":"Nyx planning","start":"2026-03-14T10:00:00+00:00","end":"2026-03-14T10:30:00+00:00","description":"Discuss Phase 14","location":"Home office"}}',
+            text='{"operation":"create_event","arguments":{"summary":"Nyx planning","start":"2026-03-14T10:00:00+00:00","end":"2026-03-14T10:30:00+00:00","description":"Discuss Phase 14","location":"Home office","calendar_id":"work@example.com"}}',
             fallback_used=False,
         )
     )
     service = FakeCalendarService(
         create_response=CalendarEvent(
             event_id="evt-2",
+            calendar_id="work@example.com",
+            calendar_name="Work",
             summary="Nyx planning",
             start="2026-03-14T10:00:00+00:00",
             end="2026-03-14T10:30:00+00:00",
@@ -252,8 +264,66 @@ async def test_calendar_module_creates_event(tmp_path: Path) -> None:
     )
 
     assert "Created calendar event 'Nyx planning'" in result.response_text
+    assert "Calendar: Work." in result.response_text
     assert service.seen_create_args is not None
     assert service.seen_create_args["location"] == "Home office"
+    assert service.seen_create_args["calendar_id"] == "work@example.com"
+
+
+@pytest.mark.anyio
+async def test_calendar_module_formats_multi_calendar_events(tmp_path: Path) -> None:
+    """Agenda responses should label events when multiple calendars are present."""
+
+    config = load_config(tmp_path / "config.toml")
+    registry = FakeProviderRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text='{"operation":"list_events","arguments":{"start":"2026-03-14T00:00:00+00:00","end":"2026-03-15T00:00:00+00:00","limit":5}}',
+            fallback_used=False,
+        )
+    )
+    service = FakeCalendarService(
+        list_response=(
+            [
+                CalendarEvent(
+                    event_id="evt-1",
+                    calendar_id="primary",
+                    calendar_name="Personal",
+                    summary="Review Nyx roadmap",
+                    start="2026-03-14T10:00:00+00:00",
+                    end="2026-03-14T10:30:00+00:00",
+                    location=None,
+                    description=None,
+                    source="google",
+                ),
+                CalendarEvent(
+                    event_id="evt-2",
+                    calendar_id="team@example.com",
+                    calendar_name="Team",
+                    summary="Standup",
+                    start="2026-03-14T11:00:00+00:00",
+                    end="2026-03-14T11:15:00+00:00",
+                    location=None,
+                    description=None,
+                    source="google",
+                ),
+            ],
+            "google",
+        )
+    )
+    module = CalendarModule(
+        config=config,
+        provider_registry=registry,
+        calendar_service=service,  # type: ignore[arg-type]
+        logger=logging.getLogger("test"),
+    )
+
+    result = await module.handle("show my calendar today", model_override="codex-cli")
+
+    assert "[Personal]" in result.response_text
+    assert "[Team]" in result.response_text
 
 
 def test_calendar_module_matcher_is_conservative() -> None:

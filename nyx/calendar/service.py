@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Any
 import uuid
 
-import httpx
-
 from nyx.calendar.ical import CachedCalendarEvent, IcalCache
 from nyx.config import NyxConfig
 
@@ -27,6 +25,8 @@ class CalendarEvent:
     """Normalized calendar event returned by the Phase 14 service."""
 
     event_id: str
+    calendar_id: str
+    calendar_name: str | None
     summary: str
     start: str
     end: str
@@ -36,7 +36,7 @@ class CalendarEvent:
 
 
 class CalendarService:
-    """Access Google Calendar with a local `.ical` cache for read fallback."""
+    """Access Google Calendar with ADC, desktop OAuth, and `.ical` fallback."""
 
     def __init__(
         self,
@@ -78,6 +78,8 @@ class CalendarService:
         await self.cache.write_events(
             CachedCalendarEvent(
                 event_id=event.event_id,
+                calendar_id=event.calendar_id,
+                calendar_name=event.calendar_name,
                 summary=event.summary,
                 start=event.start,
                 end=event.end,
@@ -96,6 +98,7 @@ class CalendarService:
         end_iso: str,
         description: str | None = None,
         location: str | None = None,
+        calendar_id: str | None = None,
     ) -> CalendarEvent:
         """Create one Google Calendar event."""
 
@@ -107,6 +110,7 @@ class CalendarService:
                 end_iso,
                 description,
                 location,
+                calendar_id,
             )
         except Exception as exc:
             raise CalendarUnavailableError(
@@ -133,6 +137,8 @@ class CalendarService:
             filtered.append(
                 CalendarEvent(
                     event_id=event.event_id,
+                    calendar_id=event.calendar_id,
+                    calendar_name=event.calendar_name,
                     summary=event.summary,
                     start=event.start,
                     end=event.end,
@@ -147,20 +153,33 @@ class CalendarService:
         """Perform the blocking Google Calendar API list call synchronously."""
 
         service = self._google_service()
-        response = (
-            service.events()
-            .list(
-                calendarId="primary",
-                timeMin=_google_rfc3339(start_iso),
-                timeMax=_google_rfc3339(end_iso),
-                maxResults=limit,
-                singleEvents=True,
-                orderBy="startTime",
+        calendars = self._resolved_calendar_targets_google(service)
+        events: list[CalendarEvent] = []
+        for calendar_id, calendar_name in calendars:
+            response = (
+                service.events()
+                .list(
+                    calendarId=calendar_id,
+                    timeMin=_google_rfc3339(start_iso),
+                    timeMax=_google_rfc3339(end_iso),
+                    maxResults=limit,
+                    singleEvents=True,
+                    orderBy="startTime",
+                )
+                .execute()
             )
-            .execute()
-        )
-        items = response.get("items", [])
-        return [self._from_google_item(item) for item in items if isinstance(item, dict)]
+            items = response.get("items", [])
+            events.extend(
+                self._from_google_item(
+                    item,
+                    default_calendar_id=calendar_id,
+                    default_calendar_name=calendar_name,
+                )
+                for item in items
+                if isinstance(item, dict)
+            )
+        events.sort(key=lambda event: event.start)
+        return events[:limit]
 
     def _create_event_google(
         self,
@@ -169,10 +188,12 @@ class CalendarService:
         end_iso: str,
         description: str | None,
         location: str | None,
+        calendar_id: str | None,
     ) -> CalendarEvent:
         """Perform the blocking Google Calendar API create call synchronously."""
 
         service = self._google_service()
+        target_calendar_id = calendar_id or self._default_calendar_id()
         body: dict[str, Any] = {
             "summary": summary,
             "start": {"dateTime": _google_rfc3339(start_iso)},
@@ -183,10 +204,14 @@ class CalendarService:
         if location:
             body["location"] = location
 
-        created = service.events().insert(calendarId="primary", body=body).execute()
+        created = service.events().insert(calendarId=target_calendar_id, body=body).execute()
         if not isinstance(created, dict):
             raise CalendarUnavailableError("Google Calendar returned an unexpected create-event payload.")
-        return self._from_google_item(created)
+        return self._from_google_item(
+            created,
+            default_calendar_id=target_calendar_id,
+            default_calendar_name=None if target_calendar_id == "primary" else target_calendar_id,
+        )
 
     def _google_service(self):
         """Return an authenticated Google Calendar service client."""
@@ -197,6 +222,7 @@ class CalendarService:
             )
 
         try:
+            import google.auth
             from google.auth.transport.requests import Request
             from google.oauth2.credentials import Credentials
             from google_auth_oauthlib.flow import InstalledAppFlow
@@ -207,32 +233,116 @@ class CalendarService:
                 "google-auth-httplib2, and google-auth-oauthlib."
             ) from exc
 
-        credentials_path = self.config.calendar.credentials_path
-        if not credentials_path.exists():
-            raise CalendarUnavailableError(
-                f"Google Calendar credentials file not found at {credentials_path}."
-            )
-
-        token_path = self._token_path()
+        auth_mode = self.config.calendar.auth_mode
         creds = None
-        if token_path.exists():
-            creds = Credentials.from_authorized_user_file(str(token_path), _GOOGLE_CALENDAR_SCOPE)
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        if not creds or not creds.valid:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(credentials_path),
-                _GOOGLE_CALENDAR_SCOPE,
-            )
-            creds = flow.run_local_server(port=0)
-            token_path.parent.mkdir(parents=True, exist_ok=True)
-            token_path.write_text(creds.to_json(), encoding="utf-8")
+        adc_error: Exception | None = None
+        oauth_error: Exception | None = None
 
-        return build("calendar", "v3", credentials=creds)
+        if auth_mode in {"auto", "adc"}:
+            try:
+                creds, _project_id = google.auth.default(scopes=_GOOGLE_CALENDAR_SCOPE)
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                if creds and creds.valid:
+                    return build("calendar", "v3", credentials=creds)
+            except Exception as exc:
+                adc_error = exc
+                if auth_mode == "adc":
+                    raise CalendarUnavailableError(
+                        "Nyx could not load Application Default Credentials. "
+                        "Run `gcloud auth application-default login --client-id-file ~/.config/nyx/google_credentials.json "
+                        "--scopes https://www.googleapis.com/auth/calendar` or switch to desktop OAuth mode."
+                    ) from exc
 
-    def _from_google_item(self, item: dict[str, Any]) -> CalendarEvent:
+        if auth_mode in {"auto", "desktop-oauth"}:
+            credentials_path = self.config.calendar.credentials_path
+            if credentials_path.exists():
+                token_path = self._token_path()
+                try:
+                    if token_path.exists():
+                        creds = Credentials.from_authorized_user_file(str(token_path), _GOOGLE_CALENDAR_SCOPE)
+                    if creds and creds.expired and creds.refresh_token:
+                        creds.refresh(Request())
+                    if not creds or not creds.valid:
+                        flow = InstalledAppFlow.from_client_secrets_file(
+                            str(credentials_path),
+                            _GOOGLE_CALENDAR_SCOPE,
+                        )
+                        creds = flow.run_local_server(port=0)
+                        token_path.parent.mkdir(parents=True, exist_ok=True)
+                        token_path.write_text(creds.to_json(), encoding="utf-8")
+                    return build("calendar", "v3", credentials=creds)
+                except Exception as exc:
+                    oauth_error = exc
+                    if auth_mode == "desktop-oauth":
+                        raise
+            elif auth_mode == "desktop-oauth":
+                raise CalendarUnavailableError(
+                    f"Google Calendar credentials file not found at {credentials_path}."
+                )
+
+        raise CalendarUnavailableError(
+            "Nyx could not initialize Google Calendar credentials. "
+            "Supported auth paths are: "
+            "(1) Application Default Credentials via "
+            "`gcloud auth application-default login --client-id-file ~/.config/nyx/google_credentials.json "
+            "--scopes https://www.googleapis.com/auth/calendar`, "
+            f"(2) Nyx desktop OAuth credentials at {self.config.calendar.credentials_path}. "
+            f"ADC error: {adc_error}. OAuth error: {oauth_error}."
+        )
+
+    def _resolved_calendar_targets_google(self, service) -> list[tuple[str, str | None]]:
+        """Resolve the calendars queried for agenda/list requests."""
+
+        if self.config.calendar.include_all_calendars:
+            return self._list_accessible_calendars_google(service)
+        if self.config.calendar.calendar_ids:
+            accessible = dict(self._list_accessible_calendars_google(service))
+            return [
+                (calendar_id, accessible.get(calendar_id, None if calendar_id == "primary" else calendar_id))
+                for calendar_id in self.config.calendar.calendar_ids
+            ]
+        default_calendar_id = self._default_calendar_id()
+        return [(default_calendar_id, None if default_calendar_id == "primary" else default_calendar_id)]
+
+    def _list_accessible_calendars_google(self, service) -> list[tuple[str, str | None]]:
+        """Return visible calendar ids and names for the authenticated principal."""
+
+        calendars: list[tuple[str, str | None]] = []
+        page_token = None
+        while True:
+            response = service.calendarList().list(pageToken=page_token).execute()
+            for item in response.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                calendar_id = item.get("id")
+                if not isinstance(calendar_id, str) or not calendar_id:
+                    continue
+                calendars.append((calendar_id, item.get("summary")))
+            page_token = response.get("nextPageToken")
+            if not page_token:
+                break
+        return calendars or [("primary", None)]
+
+    def _default_calendar_id(self) -> str:
+        """Return the configured default calendar id used for event creation."""
+
+        if self.config.calendar.default_calendar_id:
+            return self.config.calendar.default_calendar_id
+        if self.config.calendar.calendar_ids:
+            return self.config.calendar.calendar_ids[0]
+        return "primary"
+
+    def _from_google_item(
+        self,
+        item: dict[str, Any],
+        *,
+        default_calendar_id: str,
+        default_calendar_name: str | None,
+    ) -> CalendarEvent:
         """Normalize one Google Calendar API event resource."""
 
+        organizer = item.get("organizer", {}) if isinstance(item.get("organizer"), dict) else {}
         event_id = item.get("id") or uuid.uuid4().hex
         summary = item.get("summary") or "(untitled event)"
         start_info = item.get("start", {})
@@ -241,6 +351,8 @@ class CalendarService:
         end = _normalize_google_time(end_info)
         return CalendarEvent(
             event_id=str(event_id),
+            calendar_id=str(organizer.get("email") or default_calendar_id),
+            calendar_name=organizer.get("displayName") or default_calendar_name,
             summary=str(summary),
             start=start,
             end=end,

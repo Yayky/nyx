@@ -14,6 +14,8 @@ class CachedCalendarEvent:
     """One calendar event stored in or loaded from the local `.ical` cache."""
 
     event_id: str
+    calendar_id: str
+    calendar_name: str | None
     summary: str
     start: str
     end: str
@@ -44,11 +46,14 @@ class IcalCache:
                     [
                         "BEGIN:VEVENT",
                         f"UID:{_escape_text(event.event_id)}",
+                        f"CATEGORIES:{_escape_text(event.calendar_id)}",
                         f"SUMMARY:{_escape_text(event.summary)}",
                         f"DTSTART:{_to_ical_timestamp(event.start)}",
                         f"DTEND:{_to_ical_timestamp(event.end)}",
                     ]
                 )
+                if event.calendar_name:
+                    lines.append(f"X-WR-CALNAME:{_escape_text(event.calendar_name)}")
                 if event.location:
                     lines.append(f"LOCATION:{_escape_text(event.location)}")
                 if event.description:
@@ -80,6 +85,8 @@ class IcalCache:
                         events.append(
                             CachedCalendarEvent(
                                 event_id=current.get("UID", ""),
+                                calendar_id=current.get("CATEGORIES", "primary"),
+                                calendar_name=_none_if_empty(_unescape_text(current.get("X-WR-CALNAME", ""))),
                                 summary=_unescape_text(current.get("SUMMARY", "")),
                                 start=_from_ical_timestamp(current.get("DTSTART", "")),
                                 end=_from_ical_timestamp(current.get("DTEND", "")),
