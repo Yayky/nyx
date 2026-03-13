@@ -11,7 +11,9 @@ from dataclasses import dataclass
 import logging
 
 from nyx.bridges.base import SystemBridge
+from nyx.calendar.service import CalendarService
 from nyx.config import NyxConfig
+from nyx.modules.calendar import CalendarModule
 from nyx.modules.git_github import GitHubModule
 from nyx.modules.memory import MemoryModule
 from nyx.modules.notes import NotesModule
@@ -54,6 +56,7 @@ class IntentRouter:
         config: NyxConfig,
         bridge: SystemBridge,
         provider_registry: ProviderRegistry,
+        calendar_module: CalendarModule | None = None,
         git_github_module: GitHubModule | None = None,
         memory_module: MemoryModule | None = None,
         notes_module: NotesModule | None = None,
@@ -72,6 +75,7 @@ class IntentRouter:
                 execution paths.
             provider_registry: Provider registry responsible for model selection,
                 availability checks, and fallback behavior.
+            calendar_module: Optional prebuilt calendar module.
             git_github_module: Optional prebuilt git/github module.
             memory_module: Optional prebuilt memory module.
             notes_module: Optional prebuilt notes module.
@@ -86,6 +90,12 @@ class IntentRouter:
         self.bridge = bridge
         self.provider_registry = provider_registry
         self.logger = logger or logging.getLogger("nyx.intent_router")
+        self.calendar_module = calendar_module or CalendarModule(
+            config=config,
+            provider_registry=provider_registry,
+            calendar_service=CalendarService(config=config, logger=self.logger),
+            logger=self.logger,
+        )
         self.git_github_module = git_github_module or GitHubModule(
             config=config,
             provider_registry=provider_registry,
@@ -150,6 +160,9 @@ class IntentRouter:
 
         if self.memory_module.matches_request(request.text):
             return await self._route_memory(request)
+
+        if self.calendar_module.matches_request(request.text):
+            return await self._route_calendar(request)
 
         if self.git_github_module.matches_request(request.text):
             return await self._route_git_github(request)
@@ -398,6 +411,49 @@ class IntentRouter:
             response_text=module_result.response_text,
             intent="git_github",
             target_module="git_github",
+            used_model=module_result.used_model,
+            degraded=module_result.degraded,
+            model_name=module_result.model_name,
+            token_count=module_result.token_count,
+        )
+
+    async def _route_calendar(self, request: IntentRequest) -> IntentResult:
+        """Dispatch an obvious calendar request into the Phase 14 module."""
+
+        try:
+            module_result = await self.calendar_module.handle(
+                request_text=request.text,
+                model_override=request.model_override,
+            )
+        except ProviderError as exc:
+            self.logger.warning("Calendar planning failed: %s", exc)
+            requested_provider = request.model_override or self.config.models.default
+            return IntentResult(
+                response_text=f"Nyx could not plan the calendar action: {exc}",
+                intent="calendar",
+                target_module="calendar",
+                used_model=requested_provider,
+                degraded=True,
+                model_name=None,
+                token_count=None,
+            )
+        except Exception as exc:
+            self.logger.exception("Calendar routing failed.")
+            requested_provider = request.model_override or self.config.models.default
+            return IntentResult(
+                response_text=f"Nyx could not execute the calendar action: {exc}",
+                intent="calendar",
+                target_module="calendar",
+                used_model=requested_provider,
+                degraded=True,
+                model_name=None,
+                token_count=None,
+            )
+
+        return IntentResult(
+            response_text=module_result.response_text,
+            intent="calendar",
+            target_module="calendar",
             used_model=module_result.used_model,
             degraded=module_result.degraded,
             model_name=module_result.model_name,

@@ -76,6 +76,33 @@ class FakeGitHubModule:
         return "git diff" in text
 
 
+@dataclass
+class FakeCalendarModule:
+    """Minimal calendar module stub for router dispatch tests."""
+
+    async def handle(self, request_text: str, model_override: str | None = None):
+        """Return a deterministic calendar module result."""
+
+        del request_text, model_override
+        return type(
+            "CalendarResult",
+            (),
+            {
+                "response_text": "calendar summary",
+                "used_model": "codex-cli",
+                "model_name": None,
+                "token_count": None,
+                "degraded": False,
+            },
+        )()
+
+    @staticmethod
+    def matches_request(text: str) -> bool:
+        """Match explicit calendar prompts."""
+
+        return "calendar" in text or "agenda" in text
+
+
 @pytest.mark.anyio
 async def test_router_returns_provider_result(tmp_path) -> None:
     """The router should return text from the selected provider."""
@@ -279,6 +306,36 @@ async def test_router_dispatches_git_github_requests(tmp_path) -> None:
 
     assert result.intent == "git_github"
     assert result.target_module == "git_github"
+
+
+@pytest.mark.anyio
+async def test_router_dispatches_calendar_requests(tmp_path) -> None:
+    """Explicit calendar prompts should route into the Phase 14 module."""
+
+    config = load_config(tmp_path / "config.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        calendar_module=FakeCalendarModule(),
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="show my calendar today", model_override="codex-cli", yolo=False)
+    )
+
+    assert result.intent == "calendar"
+    assert result.target_module == "calendar"
 
 
 @pytest.mark.anyio

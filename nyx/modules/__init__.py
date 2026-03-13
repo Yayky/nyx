@@ -1,5 +1,6 @@
 """Feature modules for Nyx."""
 
+from nyx.modules.calendar import CalendarModule
 from nyx.modules.git_github import GitHubModule
 from nyx.modules.memory import MemoryModule
 from nyx.modules.notes import NotesModule
@@ -8,6 +9,7 @@ from nyx.modules.system_control import SystemControlModule
 from nyx.modules.tasks import TasksModule
 
 __all__ = [
+    "CalendarModule",
     "GitHubModule",
     "MemoryModule",
     "NotesModule",
