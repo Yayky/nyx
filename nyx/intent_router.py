@@ -18,6 +18,7 @@ from nyx.modules.notes import NotesModule
 from nyx.modules.rag import RagModule
 from nyx.modules.screen_context import ScreenContextModule
 from nyx.modules.system_control import SystemControlModule
+from nyx.modules.tasks import TasksModule
 from nyx.providers.base import ProviderError
 from nyx.providers.registry import ProviderQueryResult, ProviderRegistry
 from nyx.rag import ChromaRagStore, OllamaEmbedder, RagService
@@ -59,6 +60,7 @@ class IntentRouter:
         rag_module: RagModule | None = None,
         screen_context_module: ScreenContextModule | None = None,
         system_control_module: SystemControlModule | None = None,
+        tasks_module: TasksModule | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         """Initialize the router with explicit dependencies.
@@ -76,6 +78,7 @@ class IntentRouter:
             rag_module: Optional prebuilt RAG module.
             screen_context_module: Optional prebuilt screen-context module.
             system_control_module: Optional prebuilt system-control module.
+            tasks_module: Optional prebuilt tasks module.
             logger: Optional logger for router diagnostics.
         """
 
@@ -94,6 +97,11 @@ class IntentRouter:
             logger=self.logger,
         )
         self.notes_module = notes_module or NotesModule(
+            config=config,
+            provider_registry=provider_registry,
+            logger=self.logger,
+        )
+        self.tasks_module = tasks_module or TasksModule(
             config=config,
             provider_registry=provider_registry,
             logger=self.logger,
@@ -151,6 +159,9 @@ class IntentRouter:
 
         if self.rag_module.matches_request(request.text):
             return await self._route_rag(request)
+
+        if self.tasks_module.matches_request(request.text):
+            return await self._route_tasks(request)
 
         if self.notes_module.matches_request(request.text):
             return await self._route_notes(request)
@@ -301,6 +312,49 @@ class IntentRouter:
             response_text=module_result.response_text,
             intent="memory",
             target_module="memory",
+            used_model=module_result.used_model,
+            degraded=module_result.degraded,
+            model_name=module_result.model_name,
+            token_count=module_result.token_count,
+        )
+
+    async def _route_tasks(self, request: IntentRequest) -> IntentResult:
+        """Dispatch an obvious tasks request into the Phase 13 module."""
+
+        try:
+            module_result = await self.tasks_module.handle(
+                request_text=request.text,
+                model_override=request.model_override,
+            )
+        except ProviderError as exc:
+            self.logger.warning("Tasks planning failed: %s", exc)
+            requested_provider = request.model_override or self.config.models.default
+            return IntentResult(
+                response_text=f"Nyx could not plan the task action: {exc}",
+                intent="tasks",
+                target_module="tasks",
+                used_model=requested_provider,
+                degraded=True,
+                model_name=None,
+                token_count=None,
+            )
+        except Exception as exc:
+            self.logger.exception("Tasks routing failed.")
+            requested_provider = request.model_override or self.config.models.default
+            return IntentResult(
+                response_text=f"Nyx could not execute the task action: {exc}",
+                intent="tasks",
+                target_module="tasks",
+                used_model=requested_provider,
+                degraded=True,
+                model_name=None,
+                token_count=None,
+            )
+
+        return IntentResult(
+            response_text=module_result.response_text,
+            intent="tasks",
+            target_module="tasks",
             used_model=module_result.used_model,
             degraded=module_result.degraded,
             model_name=module_result.model_name,

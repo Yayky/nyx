@@ -282,6 +282,39 @@ async def test_router_dispatches_git_github_requests(tmp_path) -> None:
 
 
 @pytest.mark.anyio
+async def test_router_dispatches_task_requests(tmp_path) -> None:
+    """Explicit task prompts should route into the Phase 13 tasks module."""
+
+    config = load_config(tmp_path / "config.toml")
+    config.notes.notes_dir = tmp_path / "notes"
+    config.notes.projects_dir = config.notes.notes_dir / "projects"
+    (config.notes.projects_dir / "nyx").mkdir(parents=True)
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text='{"operation":"add_task","arguments":{"project":"nyx","content":"Write tests"}}',
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="add a task for nyx to write tests", model_override="codex-cli", yolo=False)
+    )
+
+    assert result.intent == "tasks"
+    assert result.target_module == "tasks"
+    assert result.used_model == "codex-cli"
+
+
+@pytest.mark.anyio
 async def test_router_dispatches_rag_requests(tmp_path) -> None:
     """Explicit local-search prompts should route into the Phase 8 RAG module."""
 
