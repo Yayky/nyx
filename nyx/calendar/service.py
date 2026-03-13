@@ -251,7 +251,8 @@ class CalendarService:
                     raise CalendarUnavailableError(
                         "Nyx could not load Application Default Credentials. "
                         "Run `gcloud auth application-default login --client-id-file ~/.config/nyx/google_credentials.json "
-                        "--scopes https://www.googleapis.com/auth/calendar` or switch to desktop OAuth mode."
+                        "--scopes https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/calendar` "
+                        "or switch to desktop OAuth mode."
                     ) from exc
 
         if auth_mode in {"auto", "desktop-oauth"}:
@@ -286,7 +287,7 @@ class CalendarService:
             "Supported auth paths are: "
             "(1) Application Default Credentials via "
             "`gcloud auth application-default login --client-id-file ~/.config/nyx/google_credentials.json "
-            "--scopes https://www.googleapis.com/auth/calendar`, "
+            "--scopes https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/calendar`, "
             f"(2) Nyx desktop OAuth credentials at {self.config.calendar.credentials_path}. "
             f"ADC error: {adc_error}. OAuth error: {oauth_error}."
         )
