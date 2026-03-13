@@ -239,6 +239,9 @@
 - PR creation and issue listing require a working `gh` auth state in the current repository context.
 - Repo targeting is current-working-directory only for now; richer repo selection can be added later if the documentation calls for it.
 
+### Follow-up fixes
+- Improved the repo-discovery failure path so running Phase 12 commands outside a git repository now returns a direct Nyx guidance error instead of the raw `git rev-parse` traceback.
+
 ## Phase 11 — Screen Context Module
 **Date:** 2026-03-13
 **Status:** Complete

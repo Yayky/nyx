@@ -247,3 +247,28 @@ async def test_git_module_commit_adds_all_before_commit(tmp_path: Path) -> None:
     assert result.operation == "commit"
     assert "Implement Phase 12" in result.response_text
     assert ("git", "add", "-A") in module.seen_commands
+
+
+@pytest.mark.anyio
+async def test_git_module_reports_clear_error_outside_git_repo(tmp_path: Path) -> None:
+    """Git/GitHub requests should fail clearly when run outside a repository."""
+
+    config = load_config(tmp_path / "config.toml")
+    registry = SequentialRegistry(results=[])
+    module = FakeGitHubModule(
+        command_map={},
+        config=config,
+        provider_registry=registry,
+    )
+
+    async def failing_run_command(*command: str, cwd: Path | None = None) -> str:
+        del command, cwd
+        raise GitHubCommandError(
+            "Command git rev-parse --show-toplevel failed with code 128: "
+            "fatal: not a git repository (or any parent up to mount point /)"
+        )
+
+    module._run_command = failing_run_command  # type: ignore[method-assign]
+
+    with pytest.raises(GitHubCommandError, match="inside a git repository"):
+        await module.handle("summarize the git diff", model_override="codex-cli")

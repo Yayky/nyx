@@ -209,7 +209,16 @@ class GitHubModule:
     async def _repo_root(self) -> Path:
         """Return the current repository root or raise a descriptive error."""
 
-        stdout = await self._run_command("git", "rev-parse", "--show-toplevel")
+        try:
+            stdout = await self._run_command("git", "rev-parse", "--show-toplevel")
+        except GitHubCommandError as exc:
+            message = str(exc)
+            if "not a git repository" in message:
+                raise GitHubCommandError(
+                    "Nyx can only run git/github actions from inside a git repository. "
+                    "Change into the repo directory and try again."
+                ) from exc
+            raise
         repo_root = Path(stdout.strip())
         if not repo_root.exists():
             raise GitHubCommandError(f"Resolved repository root does not exist: {repo_root}")
