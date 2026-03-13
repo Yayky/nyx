@@ -1,0 +1,84 @@
+"""Bridge abstractions for platform-specific Nyx system integrations.
+
+All OS-specific behavior must flow through ``SystemBridge`` implementations so
+core modules remain platform-agnostic and the planned Windows port does not
+require rewriting business logic.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+
+class BridgeNotImplementedError(RuntimeError):
+    """Raised when a bridge operation is unavailable in the current phase."""
+
+
+class BridgeCommandError(RuntimeError):
+    """Raised when a bridge command fails to execute successfully."""
+
+
+class BridgeConfirmationRequiredError(RuntimeError):
+    """Raised when a destructive command requires confirmation before execution."""
+
+
+class BridgeSecurityError(RuntimeError):
+    """Raised when a command violates bridge security rules."""
+
+
+@dataclass(slots=True)
+class WindowInfo:
+    """Metadata describing the focused or enumerated window."""
+
+    app_name: str
+    window_title: str
+    workspace: str | None
+
+
+class SystemBridge(ABC):
+    """Abstract platform bridge for all OS-specific system operations."""
+
+    @abstractmethod
+    async def get_active_window(self) -> WindowInfo:
+        """Return information about the currently focused window."""
+
+    @abstractmethod
+    async def move_window_to_workspace(self, window: str, workspace: str) -> bool:
+        """Move a named window to the requested workspace."""
+
+    @abstractmethod
+    async def list_windows(self) -> list[WindowInfo]:
+        """List known windows visible to the platform implementation."""
+
+    @abstractmethod
+    async def screenshot(self, path: str) -> bool:
+        """Capture a screenshot to the supplied path."""
+
+    @abstractmethod
+    async def run_command(self, command: str, confirm_if_destructive: bool = True) -> str:
+        """Execute a system command through the platform bridge."""
+
+    @abstractmethod
+    async def list_processes(self) -> list[dict]:
+        """Return a simplified process listing."""
+
+    @abstractmethod
+    async def kill_process(self, identifier: str) -> bool:
+        """Terminate a process identified by name or PID-like identifier."""
+
+    @abstractmethod
+    async def set_brightness(self, percent: int) -> bool:
+        """Set display brightness to the requested percentage."""
+
+    @abstractmethod
+    async def set_volume(self, percent: int) -> bool:
+        """Set output volume to the requested percentage."""
+
+    @abstractmethod
+    async def get_system_stats(self) -> dict:
+        """Return basic system statistics such as CPU and RAM usage."""
+
+    @abstractmethod
+    async def notify(self, title: str, body: str) -> None:
+        """Send a user-visible notification through the platform implementation."""

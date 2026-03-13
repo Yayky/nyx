@@ -1,0 +1,120 @@
+"""Provider abstractions and shared types for Nyx model backends.
+
+This module defines the stable interface used by the intent router and provider
+registry. Concrete providers implement the documented HTTP and subprocess CLI
+backends behind this abstraction.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+import json
+from pathlib import Path
+from typing import Any
+
+from nyx.config import ProviderConfig
+
+
+class ProviderError(RuntimeError):
+    """Base class for provider-related errors."""
+
+
+class ProviderConfigurationError(ProviderError):
+    """Raised when a provider config is internally inconsistent."""
+
+
+class ProviderUnavailableError(ProviderError):
+    """Raised when a provider cannot be used in the current environment."""
+
+
+class ProviderQueryError(ProviderError):
+    """Raised when a provider call fails or returns an invalid response."""
+
+
+class UnknownProviderError(ProviderError):
+    """Raised when a configured provider name cannot be resolved."""
+
+
+@dataclass(slots=True)
+class ProviderQueryResult:
+    """Structured result returned by the provider registry.
+
+    Attributes:
+        provider_name: The named provider selected from config.
+        provider_type: The concrete provider backend type.
+        model_name: Underlying model identifier when the provider exposes one.
+        text: Final text extracted from the provider response.
+        fallback_used: Whether this provider was selected from the fallback
+            chain rather than the default configured provider.
+    """
+
+    provider_name: str
+    provider_type: str
+    model_name: str | None
+    text: str
+    fallback_used: bool
+    token_count: int | None = None
+
+
+class ModelProvider(ABC):
+    """Abstract interface for Nyx model providers."""
+
+    def __init__(self, provider_config: ProviderConfig) -> None:
+        """Store the provider configuration for later query operations."""
+
+        self.provider_config = provider_config
+        self.name = provider_config.name
+        self.type = provider_config.type
+
+    @property
+    def model_name(self) -> str | None:
+        """Return the configured underlying model name when present."""
+
+        model = self.provider_config.options.get("model")
+        return model if isinstance(model, str) else None
+
+    @abstractmethod
+    async def query(self, prompt: str, context: dict[str, Any]) -> str:
+        """Submit a prompt plus context and return the provider's text output."""
+
+    async def query_with_image(
+        self,
+        prompt: str,
+        image_path: Path,
+        context: dict[str, Any],
+    ) -> str:
+        """Submit a prompt plus image when the provider supports vision."""
+
+        del prompt, image_path, context
+        raise ProviderUnavailableError(
+            f"Provider '{self.name}' does not support image input."
+        )
+
+    @abstractmethod
+    async def is_available(self) -> bool:
+        """Return whether the provider is usable in the current environment."""
+
+    @property
+    def supports_vision(self) -> bool:
+        """Return whether the provider supports image input."""
+
+        return False
+
+    def render_prompt(self, prompt: str, context: dict[str, Any]) -> str:
+        """Serialize prompt and context into a provider-friendly prompt string."""
+
+        if not context:
+            return prompt
+
+        rendered_context = json.dumps(context, indent=2, sort_keys=True, default=str)
+        return f"Context:\n{rendered_context}\n\nUser request:\n{prompt}"
+
+    def require_option(self, key: str) -> Any:
+        """Return a required provider option or raise a config error."""
+
+        if key not in self.provider_config.options:
+            raise ProviderConfigurationError(
+                f"Provider '{self.name}' is missing required option '{key}'."
+            )
+        return self.provider_config.options[key]

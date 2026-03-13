@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nyx"
+version = "0.1.0"
+description = "Nyx local-first AI assistant daemon."
+readme = "documentation.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Nyx Contributors" }
+]
+dependencies = [
+  "chromadb>=1.1,<2",
+  "httpx>=0.27,<1",
+]
+
+[project.scripts]
+nyx = "nyx.cli:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["nyx", "nyx.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

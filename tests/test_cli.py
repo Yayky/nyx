@@ -1,0 +1,180 @@
+"""Tests for the Phase 1 Nyx CLI."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+import subprocess
+import sys
+from typing import Any
+
+import pytest
+
+from nyx import cli
+from nyx.config import load_config as load_config_from_module
+from nyx.providers.base import ProviderQueryResult
+
+
+@dataclass
+class FakeRegistry:
+    """Minimal provider registry used to isolate CLI tests from live models."""
+
+    config: Any
+    logger: Any = None
+    response_text: str = "fake provider response"
+
+    async def query(
+        self,
+        prompt: str,
+        context: dict[str, Any],
+        preferred_provider_name: str | None = None,
+    ) -> ProviderQueryResult:
+        """Return a deterministic provider result for CLI tests."""
+
+        provider_name = preferred_provider_name or self.config.models.default
+        return ProviderQueryResult(
+            provider_name=provider_name,
+            provider_type="fake",
+            model_name=provider_name,
+            text=self.response_text,
+            fallback_used=False,
+        )
+
+
+def test_prompt_path_routes_once(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A one-shot prompt should print the router stub response to stdout."""
+
+    monkeypatch.setattr(
+        "nyx.cli.load_config",
+        lambda: load_config_from_module(tmp_path / "missing.toml"),
+    )
+    monkeypatch.setattr("nyx.cli.ProviderRegistry", FakeRegistry)
+
+    exit_code = cli.main(["hello", "world"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "fake provider response" in captured.out
+
+
+def test_no_args_exits_non_zero_with_guidance(capsys: pytest.CaptureFixture[str]) -> None:
+    """Calling Nyx without prompt or daemon flag should return usage guidance."""
+
+    exit_code = cli.main([])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "Provide a prompt for one-shot mode or use --daemon/--launcher." in captured.err
+
+
+def test_invalid_toml_returns_non_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI startup should fail cleanly when config loading raises."""
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("[system\n")
+
+    monkeypatch.setattr("nyx.cli.load_config", lambda: load_config_from_module(config_path))
+
+    exit_code = cli.main(["hello"])
+
+    assert exit_code == 1
+
+
+def test_daemon_flag_invokes_daemon_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The daemon flag should execute the daemon lifecycle entry point."""
+
+    called = {"run": False}
+
+    async def fake_run_forever(self) -> None:
+        called["run"] = True
+
+    monkeypatch.setattr(
+        "nyx.cli.load_config",
+        lambda: load_config_from_module(tmp_path / "missing.toml"),
+    )
+    monkeypatch.setattr("nyx.cli.ProviderRegistry", FakeRegistry)
+    monkeypatch.setattr("nyx.cli.NyxDaemon.run_forever", fake_run_forever)
+
+    exit_code = cli.main(["--daemon"])
+
+    assert exit_code == 0
+    assert called["run"] is True
+
+
+def test_launcher_flag_invokes_launcher_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The launcher flag should execute the GTK launcher entry point."""
+
+    called = {"launcher": False, "prompt": ""}
+
+    def fake_run_launcher(*, config, daemon, bridge, logger, initial_prompt: str = "") -> int:
+        called["launcher"] = True
+        called["prompt"] = initial_prompt
+        return 0
+
+    monkeypatch.setattr(
+        "nyx.cli.load_config",
+        lambda: load_config_from_module(tmp_path / "missing.toml"),
+    )
+    monkeypatch.setattr("nyx.cli.ProviderRegistry", FakeRegistry)
+    monkeypatch.setattr("nyx.cli.run_launcher", fake_run_launcher)
+
+    exit_code = cli.main(["--launcher", "prefill", "prompt"])
+
+    assert exit_code == 0
+    assert called["launcher"] is True
+    assert called["prompt"] == "prefill prompt"
+
+
+def test_python_module_entrypoint_matches_cli(tmp_path: Path) -> None:
+    """``python -m nyx`` should route prompts through the same CLI path."""
+
+    repo_root = Path(__file__).resolve().parents[1]
+    fake_home = tmp_path / "home"
+    config_dir = fake_home / ".config/nyx"
+    config_dir.mkdir(parents=True)
+    fake_cli = tmp_path / "fake_cli.py"
+    fake_cli.write_text(
+        """
+import json
+import sys
+
+prompt = sys.stdin.read().strip()
+print(json.dumps({"response": f"fake subprocess:{prompt}"}))
+""".strip()
+    )
+    (config_dir / "config.toml").write_text(
+        f"""
+[models]
+default = "fixture-cli"
+fallback = []
+
+[[models.providers]]
+name = "fixture-cli"
+type = "subprocess-cli"
+binary = "{sys.executable}"
+args = ["{fake_cli}", "-"]
+timeout_seconds = 5
+""".strip()
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "nyx", "hello"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            **dict(),
+            "HOME": str(fake_home),
+            "PATH": str(Path(sys.executable).parent),
+        },
+    )
+
+    assert result.returncode == 0
+    assert "fake subprocess:hello" in result.stdout
