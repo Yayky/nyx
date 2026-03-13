@@ -15,6 +15,7 @@ from nyx.calendar.service import CalendarService
 from nyx.config import NyxConfig
 from nyx.modules.calendar import CalendarModule
 from nyx.modules.git_github import GitHubModule
+from nyx.modules.macros import MacrosModule
 from nyx.modules.memory import MemoryModule
 from nyx.modules.notes import NotesModule
 from nyx.modules.rag import RagModule
@@ -58,6 +59,7 @@ class IntentRouter:
         provider_registry: ProviderRegistry,
         calendar_module: CalendarModule | None = None,
         git_github_module: GitHubModule | None = None,
+        macros_module: MacrosModule | None = None,
         memory_module: MemoryModule | None = None,
         notes_module: NotesModule | None = None,
         rag_module: RagModule | None = None,
@@ -77,6 +79,7 @@ class IntentRouter:
                 availability checks, and fallback behavior.
             calendar_module: Optional prebuilt calendar module.
             git_github_module: Optional prebuilt git/github module.
+            macros_module: Optional prebuilt macros module.
             memory_module: Optional prebuilt memory module.
             notes_module: Optional prebuilt notes module.
             rag_module: Optional prebuilt RAG module.
@@ -98,6 +101,12 @@ class IntentRouter:
         )
         self.git_github_module = git_github_module or GitHubModule(
             config=config,
+            provider_registry=provider_registry,
+            logger=self.logger,
+        )
+        self.macros_module = macros_module or MacrosModule(
+            config=config,
+            bridge=bridge,
             provider_registry=provider_registry,
             logger=self.logger,
         )
@@ -160,6 +169,9 @@ class IntentRouter:
 
         if self.memory_module.matches_request(request.text):
             return await self._route_memory(request)
+
+        if self.macros_module.matches_request(request.text):
+            return await self._route_macros(request)
 
         if self.calendar_module.matches_request(request.text):
             return await self._route_calendar(request)
@@ -239,6 +251,49 @@ class IntentRouter:
             response_text=module_result.response_text,
             intent="system_control",
             target_module="system_control",
+            used_model=module_result.used_model,
+            degraded=module_result.degraded,
+            model_name=module_result.model_name,
+            token_count=module_result.token_count,
+        )
+
+    async def _route_macros(self, request: IntentRequest) -> IntentResult:
+        """Dispatch an obvious macros request into the Phase 15 module."""
+
+        try:
+            module_result = await self.macros_module.handle(
+                request_text=request.text,
+                model_override=request.model_override,
+            )
+        except ProviderError as exc:
+            self.logger.warning("Macros planning failed: %s", exc)
+            requested_provider = request.model_override or self.config.models.default
+            return IntentResult(
+                response_text=f"Nyx could not plan the macro action: {exc}",
+                intent="macros",
+                target_module="macros",
+                used_model=requested_provider,
+                degraded=True,
+                model_name=None,
+                token_count=None,
+            )
+        except Exception:
+            self.logger.exception("Macros routing failed.")
+            requested_provider = request.model_override or self.config.models.default
+            return IntentResult(
+                response_text="Nyx could not execute the macro action.",
+                intent="macros",
+                target_module="macros",
+                used_model=requested_provider,
+                degraded=True,
+                model_name=None,
+                token_count=None,
+            )
+
+        return IntentResult(
+            response_text=module_result.response_text,
+            intent="macros",
+            target_module="macros",
             used_model=module_result.used_model,
             degraded=module_result.degraded,
             model_name=module_result.model_name,
