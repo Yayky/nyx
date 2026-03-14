@@ -18,7 +18,13 @@ from typing import Any
 
 from nyx.bridges.base import SystemBridge
 from nyx.config import NyxConfig
-from nyx.macros import MacroContext, MacroDefinition, discover_macros, execute_macro
+from nyx.macros import (
+    MacroContext,
+    MacroDefinition,
+    discover_macros,
+    execute_macro,
+    parse_macro_definition_source,
+)
 from nyx.providers.base import ProviderQueryResult
 from nyx.providers.registry import ProviderRegistry
 
@@ -213,10 +219,24 @@ class MacrosModule:
             context=self._planner_context(macros, project_names),
             preferred_provider_name=model_override,
         )
-        source = self._extract_python_source(generator_result.text)
-        self._validate_macro_source(source)
+        try:
+            source = self._extract_python_source(generator_result.text)
+            self._validate_macro_source(source)
+            created_macro = self._parse_generated_macro(
+                source,
+                target_path=target_path,
+                project_name=create_project,
+            )
+        except Exception as exc:
+            return MacrosResult(
+                response_text=f"Nyx could not generate a valid macro: {exc}",
+                used_model=generator_result.provider_name,
+                model_name=generator_result.model_name,
+                token_count=generator_result.token_count,
+                degraded=True,
+                operation=plan.operation,
+            )
         await self._write_macro(target_path, source)
-        created_macro = await self._load_macro(target_path, create_project)
         response_text = (
             f"Created {created_macro.scope} macro '{created_macro.name}' at {created_macro.file_path}."
         )
@@ -420,6 +440,7 @@ class MacrosModule:
 
         source = await asyncio.to_thread(path.read_text, encoding="utf-8")
         self._validate_macro_source(source)
+        self._parse_generated_macro(source, target_path=path, project_name=None)
 
     async def _load_macro(self, path: Path, project_name: str | None) -> MacroDefinition:
         """Load one persisted macro definition from disk."""
@@ -427,6 +448,21 @@ class MacrosModule:
         from nyx.macros.runtime import _load_macro_definition
 
         return await _load_macro_definition(path, project_name)
+
+    def _parse_generated_macro(
+        self,
+        source: str,
+        *,
+        target_path: Path,
+        project_name: str | None,
+    ) -> MacroDefinition:
+        """Validate generated macro source before it is written to disk."""
+
+        return parse_macro_definition_source(
+            source,
+            file_path=target_path,
+            project_name=project_name,
+        )
 
     def _format_macro_list(self, macros: list[MacroDefinition]) -> str:
         """Render one concise macro listing."""
@@ -484,7 +520,12 @@ class MacrosModule:
         fenced_match = _PYTHON_BLOCK_PATTERN.search(text)
         if fenced_match is not None:
             return fenced_match.group(1).strip()
-        return text.strip()
+        stripped = text.strip()
+        for marker in ('"""', "'''"):
+            marker_index = stripped.find(marker)
+            if marker_index != -1:
+                return stripped[marker_index:].strip()
+        return stripped
 
     def _validate_macro_source(self, source: str) -> None:
         """Validate generated macro code before writing it to disk."""

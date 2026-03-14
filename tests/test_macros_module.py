@@ -101,6 +101,53 @@ async def test_macros_module_creates_global_macro(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_macros_module_strips_generator_preamble_before_persisting(tmp_path: Path) -> None:
+    """Create requests should discard prose before the actual Python module."""
+
+    config = load_config(tmp_path / "config.toml")
+    config.notes.notes_dir = tmp_path / "notes"
+    config.notes.projects_dir = config.notes.notes_dir / "projects"
+    registry = FakeProviderRegistry(
+        results=[
+            ProviderQueryResult(
+                provider_name="codex-cli",
+                provider_type="subprocess-cli",
+                model_name=None,
+                text='{"operation":"create_macro","arguments":{"name":"Desk summary","scope":"global","project":null,"description":"Summarize the current desktop state.","triggers":["desk summary"]}}',
+                fallback_used=False,
+            ),
+            ProviderQueryResult(
+                provider_name="codex-cli",
+                provider_type="subprocess-cli",
+                model_name=None,
+                text=(
+                    "I am checking the repo for macro conventions first.\n\n"
+                    + _macro_source(
+                        name="Desk summary",
+                        scope="global",
+                        description="Summarize the current desktop state.",
+                        body='return "desktop summary"',
+                    )
+                ),
+                fallback_used=False,
+            ),
+        ]
+    )
+    module = MacrosModule(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        logger=logging.getLogger("test"),
+    )
+
+    result = await module.handle("create a global macro called desk summary", model_override="codex-cli")
+
+    macro_path = config.config_path.parent / "macros" / "desk-summary.py"
+    assert "Created global macro 'Desk summary'" in result.response_text
+    assert macro_path.read_text(encoding="utf-8").startswith('"""')
+
+
+@pytest.mark.anyio
 async def test_macros_module_lists_project_and_global_macros(tmp_path: Path) -> None:
     """List requests should render both global and project-linked macros."""
 
@@ -241,3 +288,46 @@ def test_macros_module_matcher_is_conservative() -> None:
     assert MacrosModule.matches_request("list macros for nyx") is True
     assert MacrosModule.matches_request("run the build automation macro") is True
     assert MacrosModule.matches_request("show tasks for nyx") is False
+
+
+@pytest.mark.anyio
+async def test_macros_module_ignores_invalid_existing_macro_files(tmp_path: Path) -> None:
+    """Invalid saved macro files should not break macro discovery/listing."""
+
+    config = load_config(tmp_path / "config.toml")
+    config.notes.notes_dir = tmp_path / "notes"
+    config.notes.projects_dir = config.notes.notes_dir / "projects"
+    global_dir = config.config_path.parent / "macros"
+    global_dir.mkdir(parents=True)
+    (global_dir / "broken.py").write_text("I’m broken\n", encoding="utf-8")
+    (global_dir / "desk-summary.py").write_text(
+        _macro_source(
+            name="Desk summary",
+            scope="global",
+            description="Summarize the desktop.",
+            body='return "desktop summary"',
+        ),
+        encoding="utf-8",
+    )
+    registry = FakeProviderRegistry(
+        results=[
+            ProviderQueryResult(
+                provider_name="codex-cli",
+                provider_type="subprocess-cli",
+                model_name=None,
+                text='{"operation":"list_macros","arguments":{"scope":"all","project":null}}',
+                fallback_used=False,
+            )
+        ]
+    )
+    module = MacrosModule(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        logger=logging.getLogger("test"),
+    )
+
+    result = await module.handle("list macros", model_override="codex-cli")
+
+    assert "Desk summary [global]" in result.response_text
+    assert "broken" not in result.response_text

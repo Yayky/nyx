@@ -75,7 +75,10 @@ async def discover_macros(global_dir: Path, projects_dir: Path) -> list[MacroDef
     definitions: list[MacroDefinition] = []
     if global_dir.exists():
         for file_path in sorted(global_dir.glob("*.py")):
-            definitions.append(await _load_macro_definition(file_path, None))
+            try:
+                definitions.append(await _load_macro_definition(file_path, None))
+            except RuntimeError:
+                continue
 
     if projects_dir.exists():
         for project_dir in sorted(child for child in projects_dir.iterdir() if child.is_dir()):
@@ -83,7 +86,10 @@ async def discover_macros(global_dir: Path, projects_dir: Path) -> list[MacroDef
             if not macros_dir.exists():
                 continue
             for file_path in sorted(macros_dir.glob("*.py")):
-                definitions.append(await _load_macro_definition(file_path, project_dir.name))
+                try:
+                    definitions.append(await _load_macro_definition(file_path, project_dir.name))
+                except RuntimeError:
+                    continue
 
     return definitions
 
@@ -125,6 +131,17 @@ async def _load_macro_definition(file_path: Path, project_name: str | None) -> M
     """Parse one Python file into a ``MacroDefinition``."""
 
     source = await asyncio.to_thread(file_path.read_text, encoding="utf-8")
+    return parse_macro_definition_source(source, file_path=file_path, project_name=project_name)
+
+
+def parse_macro_definition_source(
+    source: str,
+    *,
+    file_path: Path,
+    project_name: str | None,
+) -> MacroDefinition:
+    """Parse one Python source string into a ``MacroDefinition``."""
+
     try:
         parsed = ast.parse(source, filename=str(file_path))
     except SyntaxError as exc:
