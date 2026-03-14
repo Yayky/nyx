@@ -14,6 +14,7 @@ import signal
 
 from nyx.bridges.base import SystemBridge
 from nyx.config import NyxConfig
+from nyx.control import OverlayControlService
 from nyx.intent_router import IntentRequest, IntentResult, IntentRouter
 from nyx.monitors import SystemMonitorService
 from nyx.skills import SkillsScheduler
@@ -29,6 +30,7 @@ class NyxDaemon:
         router: IntentRouter,
         skills_scheduler: SkillsScheduler | None = None,
         monitor_service: SystemMonitorService | None = None,
+        overlay_control_service: OverlayControlService | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         """Initialize the daemon with explicit dependencies."""
@@ -38,6 +40,7 @@ class NyxDaemon:
         self.router = router
         self.skills_scheduler = skills_scheduler
         self.monitor_service = monitor_service
+        self.overlay_control_service = overlay_control_service or OverlayControlService(logger=logger)
         self.logger = logger or logging.getLogger("nyx.daemon")
         self._shutdown_event = asyncio.Event()
 
@@ -56,6 +59,8 @@ class NyxDaemon:
                 await self.skills_scheduler.start()
             if self.monitor_service is not None:
                 await self.monitor_service.start()
+            if self.overlay_control_service is not None:
+                await self.overlay_control_service.start()
             await self._shutdown_event.wait()
         except Exception:
             self.logger.exception("Nyx daemon encountered an unrecoverable runtime error.")
@@ -65,6 +70,8 @@ class NyxDaemon:
                 await self.monitor_service.stop()
             if self.skills_scheduler is not None:
                 await self.skills_scheduler.stop()
+            if self.overlay_control_service is not None:
+                await self.overlay_control_service.stop()
             self.logger.info("Nyx daemon shutting down.")
 
     async def handle_prompt(self, request: IntentRequest) -> IntentResult:

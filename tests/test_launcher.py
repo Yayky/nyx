@@ -13,6 +13,7 @@ from nyx.bridges.base import WindowInfo
 from nyx.config import load_config
 from nyx.intent_router import IntentResult
 from nyx.ui import entrypoint
+from nyx.ui.history_store import OverlayHistoryStore
 from nyx.ui.session import OverlaySessionController
 
 
@@ -57,11 +58,12 @@ async def test_overlay_controller_maps_result_to_view_state(tmp_path: Path) -> N
         bridge=FakeBridge(),
         config=load_config(tmp_path / "missing.toml"),
         logger=logging.getLogger("test.launcher"),
+        history_store=OverlayHistoryStore(tmp_path / "history.json"),
     )
 
     state = await controller.submit_prompt("hello")
 
-    assert state.response_text == "hello from provider"
+    assert "hello from provider" in state.response_text
     assert state.provider_name == "codex-cli"
     assert state.active_window == WindowInfo(
         app_name="kitty",
@@ -69,7 +71,8 @@ async def test_overlay_controller_maps_result_to_view_state(tmp_path: Path) -> N
         workspace="1",
     )
     assert state.selected_session_id == 1
-    assert controller.sessions[0].title == "Session 1"
+    assert controller.sessions[0].title == "hello"
+    assert "You:" in controller.sessions[0].transcript_text
 
 
 def test_overlay_history_navigation(tmp_path: Path) -> None:
@@ -90,6 +93,7 @@ def test_overlay_history_navigation(tmp_path: Path) -> None:
         bridge=FakeBridge(),
         config=load_config(tmp_path / "missing.toml"),
         logger=logging.getLogger("test.launcher"),
+        history_store=OverlayHistoryStore(tmp_path / "history.json"),
     )
 
     controller.history = ["first", "second", "third"]
@@ -119,6 +123,7 @@ async def test_overlay_controller_filters_and_restores_sessions(tmp_path: Path) 
         bridge=FakeBridge(),
         config=load_config(tmp_path / "missing.toml"),
         logger=logging.getLogger("test.launcher"),
+        history_store=OverlayHistoryStore(tmp_path / "history.json"),
     )
 
     await controller.submit_prompt("alpha task")
@@ -136,12 +141,62 @@ async def test_overlay_controller_filters_and_restores_sessions(tmp_path: Path) 
     await controller.submit_prompt("beta search")
 
     matches = controller.filter_sessions("beta")
-    assert [session.session_id for session in matches] == [2]
+    assert [session.session_id for session in matches] == [1]
+    assert "beta search" in matches[0].search_text
 
     restored = controller.state_for_session(1)
     assert restored is not None
-    assert restored.response_text == "first response"
+    assert "first response" in restored.response_text
+    assert "second response" in restored.response_text
     assert restored.selected_session_id == 1
+
+
+@pytest.mark.anyio
+async def test_overlay_controller_persists_conversations_across_instances(tmp_path: Path) -> None:
+    """Conversation history should survive controller recreation."""
+
+    history_store = OverlayHistoryStore(tmp_path / "history.json")
+    controller = OverlaySessionController(
+        daemon=FakeDaemon(
+            IntentResult(
+                response_text="first response",
+                intent="unclassified",
+                target_module=None,
+                used_model="codex-cli",
+                degraded=False,
+                model_name=None,
+                token_count=None,
+            )
+        ),
+        bridge=FakeBridge(),
+        config=load_config(tmp_path / "missing.toml"),
+        logger=logging.getLogger("test.launcher"),
+        history_store=history_store,
+    )
+
+    await controller.submit_prompt("remember this")
+
+    restored = OverlaySessionController(
+        daemon=FakeDaemon(
+            IntentResult(
+                response_text="unused",
+                intent="unclassified",
+                target_module=None,
+                used_model="codex-cli",
+                degraded=False,
+                model_name=None,
+                token_count=None,
+            )
+        ),
+        bridge=FakeBridge(),
+        config=load_config(tmp_path / "missing.toml"),
+        logger=logging.getLogger("test.launcher"),
+        history_store=history_store,
+    )
+
+    assert len(restored.sessions) == 1
+    assert restored.sessions[0].title == "remember this"
+    assert restored.history == ["remember this"]
 
 
 def test_launcher_entrypoint_surfaces_clear_message_for_missing_gi(

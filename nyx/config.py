@@ -1,9 +1,9 @@
-"""Configuration models and loader for Nyx.
+"""Configuration models, loading, and persistence helpers for Nyx.
 
-This module defines the Phase 1 config schema matching ``documentation.md`` and
-provides a strict TOML loader. The loader returns fully populated dataclass
-instances, expands user paths, and rejects unknown keys so later phases build on
-stable configuration contracts.
+This module defines the config schema matching ``documentation.md`` and
+provides a strict TOML loader. It also exposes small persistence helpers used by
+the settings UI so the runtime can render the active configuration back to TOML
+without bringing in a third-party serializer.
 """
 
 from __future__ import annotations
@@ -237,6 +237,158 @@ def load_config(config_path: Path | None = None) -> NyxConfig:
         _merge_top_level(merged, loaded, resolved_path)
 
     return _build_config(merged, resolved_path)
+
+
+def load_config_text(config_path: Path | None = None) -> str:
+    """Return the raw config file text or a rendered default config.
+
+    Args:
+        config_path: Optional config file path. When omitted, the default Nyx
+            config path is used.
+
+    Returns:
+        Raw TOML text for the current config file when it exists, otherwise a
+        TOML rendering of the in-memory defaults.
+    """
+
+    resolved_path = (config_path or DEFAULT_CONFIG_PATH).expanduser()
+    if resolved_path.exists():
+        return resolved_path.read_text(encoding="utf-8")
+    return render_config_toml(load_config(resolved_path))
+
+
+def save_config_text(config_text: str, config_path: Path | None = None) -> NyxConfig:
+    """Validate and persist TOML config text to disk.
+
+    Args:
+        config_text: Full TOML document to write.
+        config_path: Optional destination path. When omitted, the default Nyx
+            config path is used.
+
+    Returns:
+        The reloaded ``NyxConfig`` produced from the saved file.
+    """
+
+    resolved_path = (config_path or DEFAULT_CONFIG_PATH).expanduser()
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_path.write_text(config_text, encoding="utf-8")
+    return load_config(resolved_path)
+
+
+def render_config_toml(config: NyxConfig) -> str:
+    """Serialize a ``NyxConfig`` object into TOML text.
+
+    The serializer is intentionally small and deterministic so the settings UI
+    can present an editable full-config view without depending on external TOML
+    writing libraries.
+    """
+
+    models_section = "\n".join(
+        [
+            "[models]",
+            f'default = "{_escape_string(config.models.default)}"',
+            f"fallback = {_render_string_list(config.models.fallback)}",
+            "",
+            *[_render_provider(provider) for provider in config.models.providers],
+        ]
+    ).rstrip()
+
+    sections = [
+        models_section,
+        "\n".join(
+            [
+                "[voice]",
+                f"enabled = {_render_bool(config.voice.enabled)}",
+                f'whisper_model = "{_escape_string(config.voice.whisper_model)}"',
+                f'whisper_binary = "{_escape_string(config.voice.whisper_binary)}"',
+            ]
+        ),
+        "\n".join(
+            [
+                "[notes]",
+                f'notes_dir = "{_escape_string(str(config.notes.notes_dir))}"',
+                f'inbox_file = "{_escape_string(config.notes.inbox_file)}"',
+                f'projects_dir = "{_escape_string(str(config.notes.projects_dir))}"',
+                f"auto_sort = {_render_bool(config.notes.auto_sort)}",
+            ]
+        ),
+        "\n".join(
+            [
+                "[rag]",
+                f'db_path = "{_escape_string(str(config.rag.db_path))}"',
+                f'embed_model = "{_escape_string(config.rag.embed_model)}"',
+            ]
+        ),
+        "\n".join(
+            [
+                "[sync]",
+                f'notes_repo_path = "{_escape_string(str(config.sync.notes_repo_path))}"',
+                f'memory_mirror_path = "{_escape_string(str(config.sync.memory_mirror_path))}"',
+                f'syncthing_config_path = "{_escape_string(str(config.sync.syncthing_config_path))}"',
+                f'syncthing_snippet_path = "{_escape_string(str(config.sync.syncthing_snippet_path))}"',
+                f'syncthing_folder_id = "{_escape_string(config.sync.syncthing_folder_id)}"',
+            ]
+        ),
+        "\n".join(
+            [
+                "[web]",
+                f'searxng_url = "{_escape_string(config.web.searxng_url)}"',
+                f'brave_api_key = "{_escape_string(config.web.brave_api_key)}"',
+                f"fallback_timeout_seconds = {config.web.fallback_timeout_seconds}",
+            ]
+        ),
+        "\n".join(
+            [
+                "[git]",
+                f"use_ssh = {_render_bool(config.git.use_ssh)}",
+                f"gh_cli = {_render_bool(config.git.gh_cli)}",
+            ]
+        ),
+        "\n".join(
+            [
+                "[calendar]",
+                f'provider = "{_escape_string(config.calendar.provider)}"',
+                f'credentials_path = "{_escape_string(str(config.calendar.credentials_path))}"',
+                f'auth_mode = "{_escape_string(config.calendar.auth_mode)}"',
+                f'default_calendar_id = "{_escape_string(config.calendar.default_calendar_id)}"',
+                f"calendar_ids = {_render_string_list(config.calendar.calendar_ids)}",
+                f"include_all_calendars = {_render_bool(config.calendar.include_all_calendars)}",
+            ]
+        ),
+        "\n".join(
+            [
+                "[skills]",
+                f"disabled = {_render_string_list(config.skills.disabled)}",
+            ]
+        ),
+        "\n".join(
+            [
+                "[monitors]",
+                f"poll_interval_seconds = {config.monitors.poll_interval_seconds}",
+            ]
+        ),
+        "\n".join(
+            [
+                "[ui]",
+                f'overlay_anchor = "{_escape_string(config.ui.overlay_anchor)}"',
+                f'overlay_monitor = "{_escape_string(config.ui.overlay_monitor)}"',
+                f"launcher_width = {config.ui.launcher_width}",
+                f"launcher_height = {config.ui.launcher_height}",
+                f"panel_width = {config.ui.panel_width}",
+                f'font = "{_escape_string(config.ui.font)}"',
+                f'summon_hotkey = "{_escape_string(config.ui.summon_hotkey)}"',
+            ]
+        ),
+        "\n".join(
+            [
+                "[system]",
+                f"confirm_destructive = {_render_bool(config.system.confirm_destructive)}",
+                f"yolo = {_render_bool(config.system.yolo)}",
+                f'screenshot_tmp = "{_escape_string(str(config.system.screenshot_tmp))}"',
+            ]
+        ),
+    ]
+    return "\n\n".join(sections).strip() + "\n"
 
 
 def _default_config_dict() -> dict[str, Any]:
@@ -502,3 +654,51 @@ def _expand_path_value(key: str, value: Any) -> Any:
     if key.endswith("_path") and isinstance(value, str):
         return _expand_path(value)
     return value
+
+
+def _render_provider(provider: ProviderConfig) -> str:
+    """Serialize one provider table to TOML."""
+
+    lines = [
+        "[[models.providers]]",
+        f'name = "{_escape_string(provider.name)}"',
+        f'type = "{_escape_string(provider.type)}"',
+    ]
+    for key, value in provider.options.items():
+        lines.append(f"{key} = {_render_toml_value(value)}")
+    return "\n".join(lines)
+
+
+def _render_toml_value(value: Any) -> str:
+    """Render a Python value into a TOML literal."""
+
+    if isinstance(value, bool):
+        return _render_bool(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, Path):
+        return f'"{_escape_string(str(value))}"'
+    if isinstance(value, str):
+        return f'"{_escape_string(value)}"'
+    if isinstance(value, list):
+        rendered_items = ", ".join(_render_toml_value(item) for item in value)
+        return f"[{rendered_items}]"
+    raise TypeError(f"Unsupported TOML value type: {type(value)!r}")
+
+
+def _render_string_list(values: list[str]) -> str:
+    """Render a list of strings as a TOML array literal."""
+
+    return "[" + ", ".join(f'"{_escape_string(value)}"' for value in values) + "]"
+
+
+def _render_bool(value: bool) -> str:
+    """Render a Python bool as a TOML bool literal."""
+
+    return "true" if value else "false"
+
+
+def _escape_string(value: str) -> str:
+    """Escape special characters for a TOML basic string."""
+
+    return value.replace("\\", "\\\\").replace('"', '\\"')

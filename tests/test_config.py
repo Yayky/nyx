@@ -7,7 +7,7 @@ import tomllib
 
 import pytest
 
-from nyx.config import load_config
+from nyx.config import load_config, render_config_toml, save_config_text
 
 
 def test_missing_config_uses_documented_defaults(tmp_path: Path) -> None:
@@ -188,3 +188,33 @@ def test_invalid_toml_raises_descriptive_error(tmp_path: Path) -> None:
 
     with pytest.raises(tomllib.TOMLDecodeError, match=str(config_path)):
         load_config(config_path)
+
+
+def test_config_can_round_trip_through_toml_renderer(tmp_path: Path) -> None:
+    """Rendering and saving config TOML should preserve key runtime settings."""
+
+    source_path = tmp_path / "source.toml"
+    source_path.write_text(
+        """
+[models]
+default = "codex-cli"
+fallback = ["ollama-local"]
+
+[voice]
+enabled = false
+
+[ui]
+overlay_monitor = "2"
+summon_hotkey = "Super+Space"
+""".strip()
+    )
+
+    config = load_config(source_path)
+    rendered = render_config_toml(config)
+    saved = save_config_text(rendered, tmp_path / "saved.toml")
+
+    assert saved.models.default == "codex-cli"
+    assert saved.models.fallback == ["ollama-local"]
+    assert saved.voice.enabled is False
+    assert saved.ui.overlay_monitor == "2"
+    assert saved.ui.summon_hotkey == "Super+Space"

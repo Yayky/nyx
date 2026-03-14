@@ -18,6 +18,7 @@ import sys
 
 from nyx.bridges.factory import get_system_bridge
 from nyx.config import load_config
+from nyx.control import send_control_command
 from nyx.daemon import NyxDaemon
 from nyx.intent_router import IntentRequest, IntentRouter
 from nyx.logging import configure_logging
@@ -35,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--daemon", action="store_true", help="Run the Nyx daemon.")
     mode_group.add_argument("--launcher", action="store_true", help="Run the GTK launcher.")
+    mode_group.add_argument(
+        "--toggle-ui",
+        action="store_true",
+        help="Toggle the managed Nyx overlay through the running daemon.",
+    )
     mode_group.add_argument(
         "--voice",
         action="store_true",
@@ -70,18 +76,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_usage(sys.stderr)
         sys.stderr.write("Use either a text prompt, --voice, or --voice-file.\n")
         return 2
-    if args.voice_file and (args.daemon or args.launcher):
+    if args.voice_file and (args.daemon or args.launcher or args.toggle_ui):
         parser.print_usage(sys.stderr)
         sys.stderr.write("--voice-file is only supported for one-shot CLI mode.\n")
         return 2
-    if not args.daemon and not args.launcher and not args.voice and not prompt and not args.voice_file:
+    if not args.daemon and not args.launcher and not args.toggle_ui and not args.voice and not prompt and not args.voice_file:
         parser.print_usage(sys.stderr)
         sys.stderr.write(
-            "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher.\n"
+            "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher/--toggle-ui.\n"
         )
         return 2
 
     try:
+        if args.toggle_ui:
+            asyncio.run(send_control_command("toggle"))
+            return 0
         config = load_config()
         if args.yolo:
             config.system.yolo = True

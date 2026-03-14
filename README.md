@@ -14,6 +14,7 @@ Nyx currently includes:
 - provider routing across Ollama, OpenAI-compatible HTTP backends, and CLI tools like Codex CLI
 - Hyprland/Wayland bridge integration for window state, screenshots, commands, notifications, and microphone recording
 - GTK launcher and panel UI with history, search, and multi-monitor-aware placement
+- persistent local conversation threads in the overlay history sidebar
 - project-aware notes, tasks, memory, macros, and skills
 - local RAG with ChromaDB and Ollama embeddings
 - screen-context analysis with vision-capable providers
@@ -112,6 +113,13 @@ Run the GTK launcher:
 python3 -m nyx --launcher
 ```
 
+Run the daemon and toggle the managed overlay on demand:
+
+```bash
+python3 -m nyx --daemon
+python3 -m nyx --toggle-ui
+```
+
 Run live microphone input:
 
 ```bash
@@ -131,8 +139,39 @@ Launcher and panel controls currently implemented:
 - `Enter` submits
 - `Shift+Enter` inserts a newline
 - `Ctrl+H` toggles panel/history mode
+- `Ctrl+,` opens the settings sidebar
 - `Ctrl+C` copies the last response
 - `Escape` closes the launcher process
+
+The panel now stores conversation threads locally at:
+
+```text
+~/.local/state/nyx/conversations.json
+```
+
+That history survives launcher restarts and is searchable from the sidebar.
+
+### Summon hotkey on Hyprland
+
+Nyx's configurable summon command is:
+
+```bash
+python3 -m nyx --toggle-ui
+```
+
+If the daemon is running in the background, bind it in `hyprland.conf`, for example:
+
+```text
+bind = SUPER, A, exec, /path/to/your/venv/bin/python -m nyx --toggle-ui
+```
+
+Typical startup on login is:
+
+```text
+exec-once = /path/to/your/venv/bin/python -m nyx --daemon
+```
+
+The desired key combination lives in `[ui].summon_hotkey`, and the settings sidebar exposes it directly, but Hyprland still owns the actual compositor bind.
 
 ## Configuration Overview
 
