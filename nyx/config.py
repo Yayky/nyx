@@ -21,6 +21,13 @@ _SECTION_KEYS: dict[str, set[str]] = {
     "voice": {"enabled", "whisper_model", "whisper_binary"},
     "notes": {"notes_dir", "inbox_file", "projects_dir", "auto_sort"},
     "rag": {"db_path", "embed_model"},
+    "sync": {
+        "notes_repo_path",
+        "memory_mirror_path",
+        "syncthing_config_path",
+        "syncthing_snippet_path",
+        "syncthing_folder_id",
+    },
     "web": {"searxng_url", "brave_api_key", "fallback_timeout_seconds"},
     "git": {"use_ssh", "gh_cli"},
     "calendar": {
@@ -109,6 +116,17 @@ class WebConfig:
 
 
 @dataclass(slots=True)
+class SyncConfig:
+    """Cross-device sync configuration."""
+
+    notes_repo_path: Path
+    memory_mirror_path: Path
+    syncthing_config_path: Path
+    syncthing_snippet_path: Path
+    syncthing_folder_id: str
+
+
+@dataclass(slots=True)
 class GitConfig:
     """Git and GitHub integration configuration."""
 
@@ -172,6 +190,7 @@ class NyxConfig:
     voice: VoiceConfig
     notes: NotesConfig
     rag: RagConfig
+    sync: SyncConfig
     web: WebConfig
     git: GitConfig
     calendar: CalendarConfig
@@ -297,6 +316,13 @@ def _default_config_dict() -> dict[str, Any]:
         "rag": {
             "db_path": "~/.local/share/nyx/rag",
             "embed_model": "nomic-embed-text",
+        },
+        "sync": {
+            "notes_repo_path": "~/notes",
+            "memory_mirror_path": "~/notes/memory.md",
+            "syncthing_config_path": "~/.local/state/syncthing/config.xml",
+            "syncthing_snippet_path": "~/.config/nyx/syncthing-nyx-rag.xml",
+            "syncthing_folder_id": "nyx-rag",
         },
         "web": {
             "searxng_url": "http://localhost:8080",
@@ -434,6 +460,13 @@ def _build_config(data: dict[str, Any], config_path: Path) -> NyxConfig:
         rag=RagConfig(
             db_path=_expand_path(data["rag"]["db_path"]),
             embed_model=data["rag"]["embed_model"],
+        ),
+        sync=SyncConfig(
+            notes_repo_path=_expand_path(data["sync"]["notes_repo_path"]),
+            memory_mirror_path=_expand_path(data["sync"]["memory_mirror_path"]),
+            syncthing_config_path=_expand_path(data["sync"]["syncthing_config_path"]),
+            syncthing_snippet_path=_expand_path(data["sync"]["syncthing_snippet_path"]),
+            syncthing_folder_id=data["sync"]["syncthing_folder_id"],
         ),
         web=WebConfig(**data["web"]),
         git=GitConfig(**data["git"]),

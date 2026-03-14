@@ -32,6 +32,8 @@ def test_path_values_are_expanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     assert config.notes.notes_dir == fake_home / "notes"
     assert config.rag.db_path == fake_home / ".local/share/nyx/rag"
+    assert config.sync.notes_repo_path == fake_home / "notes"
+    assert config.sync.syncthing_config_path == fake_home / ".local/state/syncthing/config.xml"
 
 
 def test_partial_config_merges_over_defaults(tmp_path: Path) -> None:
@@ -102,6 +104,28 @@ include_all_calendars = true
     assert config.calendar.default_calendar_id == "work@example.com"
     assert config.calendar.calendar_ids == ["primary", "team@example.com"]
     assert config.calendar.include_all_calendars is True
+
+
+def test_sync_config_supports_custom_paths_and_folder_id(tmp_path: Path) -> None:
+    """Sync config should preserve custom Git and Syncthing settings."""
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[sync]
+notes_repo_path = "~/vault/notes"
+memory_mirror_path = "~/vault/notes/memory.md"
+syncthing_config_path = "~/.config/syncthing/config.xml"
+syncthing_snippet_path = "~/.config/nyx/custom-snippet.xml"
+syncthing_folder_id = "nyx-work"
+""".strip()
+    )
+
+    config = load_config(config_path)
+
+    assert config.sync.notes_repo_path == Path("~/vault/notes").expanduser()
+    assert config.sync.syncthing_folder_id == "nyx-work"
+    assert config.sync.syncthing_snippet_path == Path("~/.config/nyx/custom-snippet.xml").expanduser()
 
 
 def test_voice_config_can_disable_voice_input(tmp_path: Path) -> None:

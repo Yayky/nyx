@@ -104,6 +104,33 @@ class FakeCalendarModule:
 
 
 @dataclass
+class FakeCrossDeviceSyncModule:
+    """Minimal cross-device sync module stub for router dispatch tests."""
+
+    async def handle(self, request_text: str, model_override: str | None = None):
+        """Return a deterministic sync module result."""
+
+        del request_text, model_override
+        return type(
+            "CrossDeviceSyncResult",
+            (),
+            {
+                "response_text": "sync output",
+                "used_model": "codex-cli",
+                "model_name": None,
+                "token_count": None,
+                "degraded": False,
+            },
+        )()
+
+    @staticmethod
+    def matches_request(text: str) -> bool:
+        """Match explicit sync prompts."""
+
+        return "cross-device sync" in text or "syncthing" in text
+
+
+@dataclass
 class FakeMacrosModule:
     """Minimal macros module stub for router dispatch tests."""
 
@@ -564,6 +591,37 @@ async def test_router_dispatches_calendar_requests(tmp_path) -> None:
 
     assert result.intent == "calendar"
     assert result.target_module == "calendar"
+
+
+@pytest.mark.anyio
+async def test_router_dispatches_cross_device_sync_requests(tmp_path) -> None:
+    """Explicit sync prompts should route into the Phase 21 module."""
+
+    config = load_config(tmp_path / "config.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        cross_device_sync_module=FakeCrossDeviceSyncModule(),
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="show cross-device sync status", model_override="codex-cli", yolo=False)
+    )
+
+    assert result.intent == "cross_device_sync"
+    assert result.target_module == "cross_device_sync"
+    assert result.response_text == "sync output"
 
 
 @pytest.mark.anyio
