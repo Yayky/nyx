@@ -180,6 +180,33 @@ class FakeSystemMonitorModule:
         return "monitor" in text or "alert me" in text
 
 
+@dataclass
+class FakeWebLookupModule:
+    """Minimal web-lookup module stub for router dispatch tests."""
+
+    async def handle(self, request_text: str, model_override: str | None = None):
+        """Return a deterministic web module result."""
+
+        del request_text, model_override
+        return type(
+            "WebResult",
+            (),
+            {
+                "response_text": "web lookup output",
+                "used_model": "codex-cli",
+                "model_name": None,
+                "token_count": None,
+                "degraded": False,
+            },
+        )()
+
+    @staticmethod
+    def matches_request(text: str) -> bool:
+        """Match explicit web lookup prompts."""
+
+        return "look up" in text or "search web" in text or "https://" in text
+
+
 @pytest.mark.anyio
 async def test_router_returns_provider_result(tmp_path) -> None:
     """The router should return text from the selected provider."""
@@ -256,6 +283,37 @@ async def test_router_returns_degraded_message_when_provider_fails(tmp_path) -> 
     assert result.degraded is True
     assert result.used_model == "ollama-local"
     assert "could not reach any configured providers" in result.response_text
+
+
+@pytest.mark.anyio
+async def test_router_dispatches_web_lookup_requests(tmp_path) -> None:
+    """Explicit web requests should route into the Phase 19 web module."""
+
+    config = load_config(tmp_path / "missing.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="ollama-local",
+            provider_type="ollama",
+            model_name="qwen2.5:7b",
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        web_lookup_module=FakeWebLookupModule(),
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="look up the latest nyx release notes", model_override=None, yolo=False)
+    )
+
+    assert result.intent == "web_lookup"
+    assert result.target_module == "web_lookup"
+    assert result.response_text == "web lookup output"
 
 
 @pytest.mark.anyio

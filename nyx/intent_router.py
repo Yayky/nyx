@@ -24,9 +24,11 @@ from nyx.modules.skills import SkillsModule
 from nyx.modules.system_monitor import SystemMonitorModule
 from nyx.modules.system_control import SystemControlModule
 from nyx.modules.tasks import TasksModule
+from nyx.modules.web_lookup import WebLookupModule
 from nyx.providers.base import ProviderError
 from nyx.providers.registry import ProviderQueryResult, ProviderRegistry
 from nyx.rag import ChromaRagStore, OllamaEmbedder, RagService
+from nyx.web import WebLookupService
 
 
 @dataclass(slots=True)
@@ -70,6 +72,7 @@ class IntentRouter:
         system_monitor_module: SystemMonitorModule | None = None,
         system_control_module: SystemControlModule | None = None,
         tasks_module: TasksModule | None = None,
+        web_lookup_module: WebLookupModule | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         """Initialize the router with explicit dependencies.
@@ -92,6 +95,7 @@ class IntentRouter:
             system_monitor_module: Optional prebuilt system-monitor module.
             system_control_module: Optional prebuilt system-control module.
             tasks_module: Optional prebuilt tasks module.
+            web_lookup_module: Optional prebuilt web lookup module.
             logger: Optional logger for router diagnostics.
         """
 
@@ -165,6 +169,12 @@ class IntentRouter:
             provider_registry=provider_registry,
             logger=self.logger,
         )
+        self.web_lookup_module = web_lookup_module or WebLookupModule(
+            config=config,
+            provider_registry=provider_registry,
+            web_service=WebLookupService(config=config, logger=self.logger),
+            logger=self.logger,
+        )
 
     async def route(self, request: IntentRequest) -> IntentResult:
         """Route a prompt through the provider layer.
@@ -198,6 +208,9 @@ class IntentRouter:
 
         if self.screen_context_module.matches_request(request.text):
             return await self._route_screen_context(request)
+
+        if self.web_lookup_module.matches_request(request.text):
+            return await self._route_web_lookup(request)
 
         if self.rag_module.matches_request(request.text):
             return await self._route_rag(request)
@@ -286,6 +299,49 @@ class IntentRouter:
             response_text=module_result.response_text,
             intent="system_control",
             target_module="system_control",
+            used_model=module_result.used_model,
+            degraded=module_result.degraded,
+            model_name=module_result.model_name,
+            token_count=module_result.token_count,
+        )
+
+    async def _route_web_lookup(self, request: IntentRequest) -> IntentResult:
+        """Dispatch an obvious web or live-info request into the Phase 19 module."""
+
+        try:
+            module_result = await self.web_lookup_module.handle(
+                request_text=request.text,
+                model_override=request.model_override,
+            )
+        except ProviderError as exc:
+            self.logger.warning("Web lookup planning failed: %s", exc)
+            requested_provider = request.model_override or self.config.models.default
+            return IntentResult(
+                response_text=f"Nyx could not plan the web lookup: {exc}",
+                intent="web_lookup",
+                target_module="web_lookup",
+                used_model=requested_provider,
+                degraded=True,
+                model_name=None,
+                token_count=None,
+            )
+        except Exception as exc:
+            self.logger.exception("Web lookup routing failed.")
+            requested_provider = request.model_override or self.config.models.default
+            return IntentResult(
+                response_text=f"Nyx could not execute the web lookup: {exc}",
+                intent="web_lookup",
+                target_module="web_lookup",
+                used_model=requested_provider,
+                degraded=True,
+                model_name=None,
+                token_count=None,
+            )
+
+        return IntentResult(
+            response_text=module_result.response_text,
+            intent="web_lookup",
+            target_module="web_lookup",
             used_model=module_result.used_model,
             degraded=module_result.degraded,
             model_name=module_result.model_name,

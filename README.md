@@ -9,6 +9,7 @@ Nyx is being built in phases. The current implementation includes:
 - provider routing across local and remote models
 - Hyprland bridge integration
 - GTK launcher and panel UI
+- live web lookup through SearXNG with Brave fallback
 - offline file-based voice input through `whisper.cpp`
 - notes, memory, RAG, screen context, git/GitHub, tasks, calendar, macros, skills, and system monitor modules
 

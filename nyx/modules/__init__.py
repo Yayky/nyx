@@ -10,6 +10,7 @@ from nyx.modules.skills import SkillsModule
 from nyx.modules.system_monitor import SystemMonitorModule
 from nyx.modules.system_control import SystemControlModule
 from nyx.modules.tasks import TasksModule
+from nyx.modules.web_lookup import WebLookupModule
 
 __all__ = [
     "CalendarModule",
@@ -22,4 +23,5 @@ __all__ = [
     "SystemMonitorModule",
     "SystemControlModule",
     "TasksModule",
+    "WebLookupModule",
 ]
