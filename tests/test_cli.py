@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from nyx.bridges.base import AudioRecordingSession
 from nyx import cli
 from nyx.config import load_config as load_config_from_module
 from nyx.providers.base import ProviderQueryResult
@@ -56,6 +57,27 @@ class FakeVoiceTranscriber:
         return f"transcribed:{audio_path.name}"
 
 
+class FakeBridge:
+    """Minimal bridge stub used for CLI microphone tests."""
+
+    def __init__(self) -> None:
+        """Store capture bookkeeping for assertions."""
+
+        self.recorded_paths: list[str] = []
+
+    async def start_audio_recording(self, path: str) -> AudioRecordingSession:
+        """Pretend to start recording and create the target file on stop."""
+
+        self.recorded_paths.append(path)
+        output_path = Path(path)
+
+        async def _stop() -> bool:
+            output_path.write_bytes(b"RIFF" + (b"\x00" * 128))
+            return True
+
+        return AudioRecordingSession(stop_callback=_stop)
+
+
 def test_prompt_path_routes_once(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
@@ -84,7 +106,7 @@ def test_no_args_exits_non_zero_with_guidance(capsys: pytest.CaptureFixture[str]
     captured = capsys.readouterr()
     assert exit_code == 2
     assert (
-        "Provide a prompt, use --voice-file for one-shot STT mode, or use --daemon/--launcher."
+        "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher."
         in captured.err
     )
 
@@ -184,6 +206,60 @@ def test_voice_file_cannot_be_combined_with_prompt(
     captured = capsys.readouterr()
     assert exit_code == 2
     assert "Use either a text prompt or --voice-file, not both." in captured.err
+
+
+def test_voice_flag_records_and_routes_transcript_once(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Microphone mode should record, transcribe, and route one prompt."""
+
+    monkeypatch.setattr(
+        "nyx.cli.load_config",
+        lambda: load_config_from_module(tmp_path / "missing.toml"),
+    )
+    monkeypatch.setattr("nyx.cli.get_system_bridge", lambda config, logger=None: FakeBridge())
+    monkeypatch.setattr("nyx.cli.ProviderRegistry", FakeRegistry)
+    monkeypatch.setattr("nyx.cli.VoiceTranscriber", FakeVoiceTranscriber)
+
+    async def fake_to_thread(func, *args):
+        return ""
+
+    monkeypatch.setattr("nyx.cli.asyncio.to_thread", fake_to_thread)
+
+    exit_code = cli.main(["--voice"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Recording from the default microphone." in captured.err
+    assert "fake provider response:transcribed:microphone.wav" in captured.out
+
+
+def test_voice_input_respects_disabled_config(
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Voice input modes should fail fast when disabled in config."""
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[voice]
+enabled = false
+""".strip()
+    )
+    monkeypatch.setattr(
+        "nyx.cli.load_config",
+        lambda: load_config_from_module(config_path),
+    )
+
+    with caplog.at_level("ERROR"):
+        exit_code = cli.main(["--voice-file", str(tmp_path / "sample.wav")])
+
+    assert exit_code == 1
+    assert "Voice input is disabled in config" in caplog.text
 
 
 def test_python_module_entrypoint_matches_cli(tmp_path: Path) -> None:

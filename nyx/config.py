@@ -18,7 +18,7 @@ DEFAULT_CONFIG_PATH = Path("~/.config/nyx/config.toml").expanduser()
 
 _SECTION_KEYS: dict[str, set[str]] = {
     "models": {"default", "fallback", "providers"},
-    "voice": {"whisper_model", "whisper_binary"},
+    "voice": {"enabled", "whisper_model", "whisper_binary"},
     "notes": {"notes_dir", "inbox_file", "projects_dir", "auto_sort"},
     "rag": {"db_path", "embed_model"},
     "web": {"searxng_url", "brave_api_key", "fallback_timeout_seconds"},
@@ -76,6 +76,7 @@ class ModelsConfig:
 class VoiceConfig:
     """Voice and speech-to-text configuration."""
 
+    enabled: bool
     whisper_model: str
     whisper_binary: str
 
@@ -283,6 +284,7 @@ def _default_config_dict() -> dict[str, Any]:
             ],
         },
         "voice": {
+            "enabled": True,
             "whisper_model": "base",
             "whisper_binary": "whisper",
         },

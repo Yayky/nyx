@@ -22,6 +22,7 @@ import signal
 from typing import Any
 
 from nyx.bridges.base import (
+    AudioRecordingSession,
     BridgeCommandError,
     BridgeConfirmationRequiredError,
     BridgeSecurityError,
@@ -153,6 +154,62 @@ class HyprlandBridge(SystemBridge):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         result = await self._run_command_exec("grim", str(output_path), check=False)
         return result.returncode == 0
+
+    async def start_audio_recording(self, path: str) -> AudioRecordingSession:
+        """Begin recording microphone audio to a WAV file using PipeWire."""
+
+        output_path = Path(path).expanduser()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        record_binary = shutil.which("pw-record")
+        if record_binary is None:
+            raise BridgeCommandError(
+                "pw-record was not found. Install PipeWire tools to use live microphone input."
+            )
+
+        process = await self._subprocess_factory(
+            record_binary,
+            "--media-type=Audio",
+            "--media-category=Capture",
+            "--media-role=Communication",
+            "--rate",
+            "16000",
+            "--channels",
+            "1",
+            "--format",
+            "s16",
+            "--container",
+            "wav",
+            str(output_path),
+            stdout=PIPE,
+            stderr=PIPE,
+        )
+
+        async def _stop_recording() -> bool:
+            """Terminate the capture process and validate the recorded output."""
+
+            if process.returncode is None:
+                process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+
+            stdout_bytes, stderr_bytes = await process.communicate()
+            stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+            stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
+            if output_path.exists() and output_path.stat().st_size > 44:
+                return True
+
+            if process.returncode not in (0, -signal.SIGTERM):
+                raise BridgeCommandError(
+                    "pw-record failed with exit code "
+                    f"{process.returncode}: {stderr or stdout or 'microphone capture failed'}"
+                )
+            return False
+
+        return AudioRecordingSession(stop_callback=_stop_recording)
 
     async def run_command(self, command: str, confirm_if_destructive: bool = True) -> str:
         """Execute a shell command after bridge-level safety checks.

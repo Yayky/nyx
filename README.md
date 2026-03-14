@@ -29,7 +29,13 @@ One-shot CLI:
 python3 -m nyx "hello"
 ```
 
-One-shot voice transcription:
+One-shot microphone voice input:
+
+```bash
+python3 -m nyx --voice
+```
+
+One-shot voice transcription from a file:
 
 ```bash
 python3 -m nyx --voice-file /path/to/input.wav
@@ -47,3 +53,4 @@ python3 -m nyx --launcher
 - Project notes live under `~/notes/projects/`
 - Some features require local services or credentials, such as Ollama or Google Calendar
 - Voice input requires a local `whisper.cpp` CLI plus a ggml model file configured under `[voice]`
+- Live microphone input on Linux uses PipeWire `pw-record`; set `[voice].enabled = false` to disable all Nyx voice input

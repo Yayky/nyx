@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import logging
 
-from nyx.bridges.base import BridgeNotImplementedError, SystemBridge, WindowInfo
+from nyx.bridges.base import (
+    AudioRecordingSession,
+    BridgeNotImplementedError,
+    SystemBridge,
+    WindowInfo,
+)
 
 
 class StubBridge(SystemBridge):
@@ -45,6 +50,11 @@ class StubBridge(SystemBridge):
         """Raise because screenshot support is not implemented in Phase 1."""
 
         raise self._not_implemented("screenshot")
+
+    async def start_audio_recording(self, path: str) -> AudioRecordingSession:
+        """Raise because microphone capture is not implemented in Phase 1."""
+
+        raise self._not_implemented("start_audio_recording")
 
     async def run_command(self, command: str, confirm_if_destructive: bool = True) -> str:
         """Raise because command execution is not implemented in Phase 1."""
