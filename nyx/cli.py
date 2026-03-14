@@ -1,9 +1,9 @@
 """Command-line interface for Nyx.
 
 The CLI wires together config loading, logging, bridge selection, provider
-registry construction, and daemon creation. In Phase 2, one-shot prompts route
-through the model provider layer while daemon mode remains the long-running
-runtime entry point.
+registry construction, daemon creation, and optional file-based voice
+transcription. One-shot prompts route through the provider-backed intent router,
+while daemon mode remains the long-running runtime entry point.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import argparse
 import asyncio
 from collections.abc import Sequence
 import logging
+from pathlib import Path
 import sys
 
 from nyx.bridges.factory import get_system_bridge
@@ -23,6 +24,7 @@ from nyx.monitors import SystemMonitorService
 from nyx.providers.registry import ProviderRegistry
 from nyx.skills import SkillsScheduler
 from nyx.ui import run_launcher
+from nyx.voice import VoiceTranscriber
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,6 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
     mode_group.add_argument("--daemon", action="store_true", help="Run the Nyx daemon.")
     mode_group.add_argument("--launcher", action="store_true", help="Run the GTK launcher.")
     parser.add_argument("--model", help="Override the configured default provider.")
+    parser.add_argument(
+        "--voice-file",
+        help="Transcribe one local audio file with whisper.cpp and route the transcript once.",
+    )
     parser.add_argument(
         "--yolo",
         action="store_true",
@@ -50,9 +56,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     logger = configure_logging(logging.INFO)
 
     prompt = " ".join(args.prompt).strip()
-    if not args.daemon and not args.launcher and not prompt:
+    if args.voice_file and prompt:
         parser.print_usage(sys.stderr)
-        sys.stderr.write("Provide a prompt for one-shot mode or use --daemon/--launcher.\n")
+        sys.stderr.write("Use either a text prompt or --voice-file, not both.\n")
+        return 2
+    if args.voice_file and (args.daemon or args.launcher):
+        parser.print_usage(sys.stderr)
+        sys.stderr.write("--voice-file is only supported for one-shot CLI mode.\n")
+        return 2
+    if not args.daemon and not args.launcher and not prompt and not args.voice_file:
+        parser.print_usage(sys.stderr)
+        sys.stderr.write(
+            "Provide a prompt, use --voice-file for one-shot STT mode, or use --daemon/--launcher.\n"
+        )
         return 2
 
     try:
@@ -87,10 +103,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 initial_prompt=prompt,
             )
 
+        routed_prompt = prompt
+        if args.voice_file:
+            transcriber = VoiceTranscriber(config=config, logger=logger)
+            routed_prompt = asyncio.run(transcriber.transcribe_file(Path(args.voice_file)))
+            logger.info("Transcribed voice input to %d characters.", len(routed_prompt))
+
         result = asyncio.run(
             daemon.handle_prompt(
                 IntentRequest(
-                    text=prompt,
+                    text=routed_prompt,
                     model_override=args.model,
                     yolo=args.yolo,
                 )

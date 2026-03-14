@@ -36,9 +36,24 @@ class FakeRegistry:
             provider_name=provider_name,
             provider_type="fake",
             model_name=provider_name,
-            text=self.response_text,
+            text=f"{self.response_text}:{prompt}",
             fallback_used=False,
         )
+
+
+class FakeVoiceTranscriber:
+    """Minimal transcriber used to isolate CLI voice tests."""
+
+    def __init__(self, config: Any, logger: Any = None) -> None:
+        """Store injected dependencies for parity with the real transcriber."""
+
+        self.config = config
+        self.logger = logger
+
+    async def transcribe_file(self, audio_path: Path) -> str:
+        """Return a deterministic transcript for the supplied path."""
+
+        return f"transcribed:{audio_path.name}"
 
 
 def test_prompt_path_routes_once(
@@ -58,7 +73,7 @@ def test_prompt_path_routes_once(
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "fake provider response" in captured.out
+    assert "fake provider response:hello world" in captured.out
 
 
 def test_no_args_exits_non_zero_with_guidance(capsys: pytest.CaptureFixture[str]) -> None:
@@ -68,7 +83,10 @@ def test_no_args_exits_non_zero_with_guidance(capsys: pytest.CaptureFixture[str]
 
     captured = capsys.readouterr()
     assert exit_code == 2
-    assert "Provide a prompt for one-shot mode or use --daemon/--launcher." in captured.err
+    assert (
+        "Provide a prompt, use --voice-file for one-shot STT mode, or use --daemon/--launcher."
+        in captured.err
+    )
 
 
 def test_invalid_toml_returns_non_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -130,6 +148,42 @@ def test_launcher_flag_invokes_launcher_mode(
     assert exit_code == 0
     assert called["launcher"] is True
     assert called["prompt"] == "prefill prompt"
+
+
+def test_voice_file_routes_transcript_once(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A voice file should be transcribed first, then routed like any prompt."""
+
+    audio_path = tmp_path / "sample.wav"
+    audio_path.write_bytes(b"wav")
+
+    monkeypatch.setattr(
+        "nyx.cli.load_config",
+        lambda: load_config_from_module(tmp_path / "missing.toml"),
+    )
+    monkeypatch.setattr("nyx.cli.ProviderRegistry", FakeRegistry)
+    monkeypatch.setattr("nyx.cli.VoiceTranscriber", FakeVoiceTranscriber)
+
+    exit_code = cli.main(["--voice-file", str(audio_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "fake provider response:transcribed:sample.wav" in captured.out
+
+
+def test_voice_file_cannot_be_combined_with_prompt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Voice-file mode should reject an additional plain-text prompt."""
+
+    exit_code = cli.main(["--voice-file", "sample.wav", "hello"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "Use either a text prompt or --voice-file, not both." in captured.err
 
 
 def test_python_module_entrypoint_matches_cli(tmp_path: Path) -> None:

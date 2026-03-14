@@ -9,6 +9,7 @@ Nyx is being built in phases. The current implementation includes:
 - provider routing across local and remote models
 - Hyprland bridge integration
 - GTK launcher and panel UI
+- offline file-based voice input through `whisper.cpp`
 - notes, memory, RAG, screen context, git/GitHub, tasks, calendar, macros, skills, and system monitor modules
 
 ## Development setup
@@ -28,6 +29,12 @@ One-shot CLI:
 python3 -m nyx "hello"
 ```
 
+One-shot voice transcription:
+
+```bash
+python3 -m nyx --voice-file /path/to/input.wav
+```
+
 Launcher UI:
 
 ```bash
@@ -39,3 +46,4 @@ python3 -m nyx --launcher
 - Local user configuration lives under `~/.config/nyx/`
 - Project notes live under `~/notes/projects/`
 - Some features require local services or credentials, such as Ollama or Google Calendar
+- Voice input requires a local `whisper.cpp` CLI plus a ggml model file configured under `[voice]`
