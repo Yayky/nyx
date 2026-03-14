@@ -9,6 +9,7 @@ Nyx is being built in phases. The current implementation includes:
 - provider routing across local and remote models
 - Hyprland bridge integration
 - GTK launcher and panel UI
+- multi-monitor-aware overlay placement with focused-monitor and named-output selection
 - live web lookup through SearXNG with Brave fallback
 - cross-device sync helpers for Git-managed notes and Syncthing-backed RAG sharing
 - offline file-based voice input through `whisper.cpp`
@@ -65,6 +66,7 @@ python3 -m nyx --launcher
 - Project notes live under `~/notes/projects/`
 - Some features require local services or credentials, such as Ollama or Google Calendar
 - Cross-device sync expects your notes directory to already be a Git repository if you want Nyx to automate commit/pull/push
+- Multi-monitor UI placement uses `[ui].overlay_monitor`, which now supports `focused`, `primary`, one-based numeric indices, and named monitor connectors like `eDP-2`
 - The GTK launcher requires system PyGObject bindings (`gi`), `gtk4`, and `gtk4-layer-shell`
 - Voice input requires a local `whisper.cpp` CLI plus a ggml model file configured under `[voice]`
 - Live microphone input on Linux uses PipeWire `pw-record`; set `[voice].enabled = false` to disable all Nyx voice input

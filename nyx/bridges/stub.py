@@ -12,6 +12,7 @@ import logging
 from nyx.bridges.base import (
     AudioRecordingSession,
     BridgeNotImplementedError,
+    MonitorInfo,
     SystemBridge,
     WindowInfo,
 )
@@ -45,6 +46,16 @@ class StubBridge(SystemBridge):
         """Raise because window enumeration is not implemented in Phase 1."""
 
         raise self._not_implemented("list_windows")
+
+    async def list_monitors(self) -> list[MonitorInfo]:
+        """Raise because monitor enumeration is not implemented in Phase 1."""
+
+        raise self._not_implemented("list_monitors")
+
+    async def get_focused_monitor(self) -> MonitorInfo | None:
+        """Raise because focused-monitor lookup is not implemented in Phase 1."""
+
+        raise self._not_implemented("get_focused_monitor")
 
     async def screenshot(self, path: str) -> bool:
         """Raise because screenshot support is not implemented in Phase 1."""

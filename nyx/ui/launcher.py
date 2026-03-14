@@ -22,6 +22,7 @@ from gi.repository import Gdk, GLib, Gtk, Gtk4LayerShell
 from nyx.bridges.base import SystemBridge
 from nyx.config import NyxConfig
 from nyx.daemon import NyxDaemon
+from nyx.ui.monitors import MonitorSelectionState, resolve_overlay_monitor
 from nyx.ui.panel import NyxPanelWindow
 from nyx.ui.session import OverlaySessionController, OverlayViewState
 from nyx.ui.styles import install_ui_css
@@ -36,6 +37,7 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         config: NyxConfig,
         controller: OverlaySessionController,
         logger: logging.Logger,
+        monitor_state: MonitorSelectionState,
         initial_prompt: str = "",
     ) -> None:
         """Create and configure the launcher window and widgets."""
@@ -44,6 +46,7 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         self.config = config
         self.controller = controller
         self.logger = logger
+        self.monitor_state = monitor_state
         self._last_response_text = ""
         self._initial_prompt = initial_prompt
         self._submission_task: asyncio.Task[None] | None = None
@@ -88,35 +91,10 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
             Gtk4LayerShell.set_monitor(self, monitor)
 
     def _resolve_monitor(self):
-        """Resolve the configured monitor selection for the launcher.
-
-        Phase 4 leaves ``focused`` unset so the compositor can place the
-        surface naturally on the focused output. ``primary`` maps to the first
-        monitor exposed by GTK4, and explicit numeric values are treated as
-        one-based monitor indices.
-        """
+        """Resolve the configured monitor selection for the launcher."""
 
         display = self.get_display()
-        if display is None:
-            return None
-
-        selection = self.config.ui.overlay_monitor
-        if selection == "focused":
-            return None
-
-        monitors = display.get_monitors()
-        monitor_count = monitors.get_n_items()
-        if monitor_count == 0:
-            return None
-
-        if selection == "primary":
-            return monitors.get_item(0)
-
-        if selection.isdigit():
-            index = max(0, int(selection) - 1)
-            if index < monitor_count:
-                return monitors.get_item(index)
-        return None
+        return resolve_overlay_monitor(display, self.config.ui.overlay_monitor, self.monitor_state)
 
     def _build_layout(self) -> None:
         """Create the Phase 4 launcher widget tree."""
@@ -373,6 +351,7 @@ class NyxLauncherApplication(Gtk.Application):
         daemon: NyxDaemon,
         bridge: SystemBridge,
         logger: logging.Logger,
+        monitor_state: MonitorSelectionState,
         initial_prompt: str = "",
     ) -> None:
         """Initialize the application with injected Nyx runtime dependencies."""
@@ -382,6 +361,7 @@ class NyxLauncherApplication(Gtk.Application):
         self.daemon = daemon
         self.bridge = bridge
         self.logger = logger
+        self.monitor_state = monitor_state
         self.initial_prompt = initial_prompt
         self.launcher_window: NyxLauncherWindow | None = None
         self.panel_window: NyxPanelWindow | None = None
@@ -417,6 +397,7 @@ class NyxLauncherApplication(Gtk.Application):
                 config=self.config,
                 controller=self.controller,
                 logger=self.logger,
+                monitor_state=self.monitor_state,
                 initial_prompt=self.initial_prompt,
             )
         self.launcher_window.present()
@@ -433,6 +414,7 @@ class NyxLauncherApplication(Gtk.Application):
                 config=self.config,
                 controller=self.controller,
                 logger=self.logger,
+                monitor_state=self.monitor_state,
             )
         self.panel_window.refresh_from_controller()
         self.panel_window.present()
@@ -458,6 +440,7 @@ def run_launcher(
     daemon: NyxDaemon,
     bridge: SystemBridge,
     logger: logging.Logger,
+    monitor_state: MonitorSelectionState,
     initial_prompt: str = "",
 ) -> int:
     """Run the GTK launcher application.
@@ -491,6 +474,7 @@ def run_launcher(
         daemon=daemon,
         bridge=bridge,
         logger=logger,
+        monitor_state=monitor_state,
         initial_prompt=initial_prompt,
     )
     return app.run(None)

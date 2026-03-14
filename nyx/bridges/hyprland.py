@@ -26,6 +26,7 @@ from nyx.bridges.base import (
     BridgeCommandError,
     BridgeConfirmationRequiredError,
     BridgeSecurityError,
+    MonitorInfo,
     SystemBridge,
     WindowInfo,
 )
@@ -146,6 +147,28 @@ class HyprlandBridge(SystemBridge):
 
         entries = await self._get_client_entries()
         return [self._window_info_from_hyprctl(entry) for entry in entries]
+
+    async def list_monitors(self) -> list[MonitorInfo]:
+        """List Hyprland monitor outputs as structured monitor metadata."""
+
+        data = await self._hyprctl_json("monitors")
+        if not isinstance(data, list):
+            return []
+        monitors: list[MonitorInfo] = []
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            monitors.append(self._monitor_info_from_hyprctl(entry))
+        return monitors
+
+    async def get_focused_monitor(self) -> MonitorInfo | None:
+        """Return the currently focused Hyprland monitor when available."""
+
+        monitors = await self.list_monitors()
+        for monitor in monitors:
+            if monitor.focused:
+                return monitor
+        return monitors[0] if monitors else None
 
     async def screenshot(self, path: str) -> bool:
         """Capture a screenshot using ``grim``."""
@@ -424,6 +447,19 @@ class HyprlandBridge(SystemBridge):
             app_name=str(data.get("class", "")),
             window_title=str(data.get("title", "")),
             workspace=workspace_id,
+        )
+
+    def _monitor_info_from_hyprctl(self, data: dict[str, Any]) -> MonitorInfo:
+        """Convert a Hyprland monitor payload into ``MonitorInfo``."""
+
+        return MonitorInfo(
+            name=str(data.get("name", "")),
+            description=str(data.get("description", "")),
+            width=int(data.get("width", 0) or 0),
+            height=int(data.get("height", 0) or 0),
+            x=int(data.get("x", 0) or 0),
+            y=int(data.get("y", 0) or 0),
+            focused=bool(data.get("focused", False)),
         )
 
     def _parse_active_window_text(self, stdout: str) -> WindowInfo | None:

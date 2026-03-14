@@ -7,7 +7,12 @@ from typing import Any
 
 import pytest
 
-from nyx.bridges.base import BridgeConfirmationRequiredError, BridgeSecurityError, WindowInfo
+from nyx.bridges.base import (
+    BridgeConfirmationRequiredError,
+    BridgeSecurityError,
+    MonitorInfo,
+    WindowInfo,
+)
 from nyx.bridges.hyprland import HyprlandBridge
 from nyx.config import load_config
 
@@ -124,6 +129,40 @@ async def test_list_windows_parses_hyprland_clients_json(tmp_path: Path) -> None
         WindowInfo(app_name="kitty", window_title="shell", workspace="2"),
         WindowInfo(app_name="brave-browser", window_title="docs", workspace="4"),
     ]
+
+
+@pytest.mark.anyio
+async def test_get_focused_monitor_parses_hyprland_monitors_json(tmp_path: Path) -> None:
+    """Focused monitor lookup should parse Hyprland monitor payloads."""
+
+    factory = FakeSubprocessFactory(
+        {
+            ("hyprctl", "monitors", "-j"): FakeProcess(
+                stdout=(
+                    '[{"name":"HDMI-A-1","description":"Dell 27","width":2560,"height":1440,'
+                    '"x":1920,"y":0,"focused":false},'
+                    '{"name":"eDP-2","description":"Laptop Panel","width":1920,"height":1080,'
+                    '"x":0,"y":0,"focused":true}]'
+                )
+            )
+        }
+    )
+    bridge = HyprlandBridge(
+        config=load_config(tmp_path / "missing.toml"),
+        subprocess_factory=factory,
+    )
+
+    monitor = await bridge.get_focused_monitor()
+
+    assert monitor == MonitorInfo(
+        name="eDP-2",
+        description="Laptop Panel",
+        width=1920,
+        height=1080,
+        x=0,
+        y=0,
+        focused=True,
+    )
 
 
 @pytest.mark.anyio

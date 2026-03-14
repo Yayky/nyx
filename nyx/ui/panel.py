@@ -18,6 +18,7 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gtk, Gtk4LayerShell
 
 from nyx.config import NyxConfig
+from nyx.ui.monitors import MonitorSelectionState, resolve_overlay_monitor
 from nyx.ui.rendering import render_markdown_to_buffer
 from nyx.ui.session import OverlaySessionController, OverlayViewState, SessionRecord
 from nyx.ui.styles import install_ui_css
@@ -32,6 +33,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         config: NyxConfig,
         controller: OverlaySessionController,
         logger: logging.Logger,
+        monitor_state: MonitorSelectionState,
     ) -> None:
         """Initialize the panel window and its sidebar/main content widgets."""
 
@@ -39,6 +41,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.config = config
         self.controller = controller
         self.logger = logger
+        self.monitor_state = monitor_state
         self._last_response_text = ""
         self._submission_task: asyncio.Task[None] | None = None
 
@@ -94,25 +97,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         """Resolve the configured monitor selection for the panel window."""
 
         display = self.get_display()
-        if display is None:
-            return None
-
-        selection = self.config.ui.overlay_monitor
-        if selection == "focused":
-            return None
-
-        monitors = display.get_monitors()
-        monitor_count = monitors.get_n_items()
-        if monitor_count == 0:
-            return None
-
-        if selection == "primary":
-            return monitors.get_item(0)
-        if selection.isdigit():
-            index = max(0, int(selection) - 1)
-            if index < monitor_count:
-                return monitors.get_item(index)
-        return None
+        return resolve_overlay_monitor(display, self.config.ui.overlay_monitor, self.monitor_state)
 
     def _build_layout(self) -> None:
         """Create the sidebar and main panel widget tree."""
