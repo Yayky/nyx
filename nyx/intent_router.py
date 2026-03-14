@@ -21,6 +21,7 @@ from nyx.modules.notes import NotesModule
 from nyx.modules.rag import RagModule
 from nyx.modules.screen_context import ScreenContextModule
 from nyx.modules.skills import SkillsModule
+from nyx.modules.system_monitor import SystemMonitorModule
 from nyx.modules.system_control import SystemControlModule
 from nyx.modules.tasks import TasksModule
 from nyx.providers.base import ProviderError
@@ -66,6 +67,7 @@ class IntentRouter:
         rag_module: RagModule | None = None,
         screen_context_module: ScreenContextModule | None = None,
         skills_module: SkillsModule | None = None,
+        system_monitor_module: SystemMonitorModule | None = None,
         system_control_module: SystemControlModule | None = None,
         tasks_module: TasksModule | None = None,
         logger: logging.Logger | None = None,
@@ -87,6 +89,7 @@ class IntentRouter:
             rag_module: Optional prebuilt RAG module.
             screen_context_module: Optional prebuilt screen-context module.
             skills_module: Optional prebuilt skills module.
+            system_monitor_module: Optional prebuilt system-monitor module.
             system_control_module: Optional prebuilt system-control module.
             tasks_module: Optional prebuilt tasks module.
             logger: Optional logger for router diagnostics.
@@ -125,6 +128,11 @@ class IntentRouter:
             logger=self.logger,
         )
         self.notes_module = notes_module or NotesModule(
+            config=config,
+            provider_registry=provider_registry,
+            logger=self.logger,
+        )
+        self.system_monitor_module = system_monitor_module or SystemMonitorModule(
             config=config,
             provider_registry=provider_registry,
             logger=self.logger,
@@ -199,6 +207,9 @@ class IntentRouter:
 
         if self.notes_module.matches_request(request.text):
             return await self._route_notes(request)
+
+        if self.system_monitor_module.matches_request(request.text):
+            return await self._route_system_monitor(request)
 
         if self.system_control_module.matches_request(request.text):
             return await self._route_system_control(request)
@@ -318,6 +329,49 @@ class IntentRouter:
             response_text=module_result.response_text,
             intent="macros",
             target_module="macros",
+            used_model=module_result.used_model,
+            degraded=module_result.degraded,
+            model_name=module_result.model_name,
+            token_count=module_result.token_count,
+        )
+
+    async def _route_system_monitor(self, request: IntentRequest) -> IntentResult:
+        """Dispatch an obvious monitor-management request into the Phase 17 module."""
+
+        try:
+            module_result = await self.system_monitor_module.handle(
+                request_text=request.text,
+                model_override=request.model_override,
+            )
+        except ProviderError as exc:
+            self.logger.warning("System-monitor planning failed: %s", exc)
+            requested_provider = request.model_override or self.config.models.default
+            return IntentResult(
+                response_text=f"Nyx could not plan the monitor action: {exc}",
+                intent="system_monitor",
+                target_module="system_monitor",
+                used_model=requested_provider,
+                degraded=True,
+                model_name=None,
+                token_count=None,
+            )
+        except Exception:
+            self.logger.exception("System-monitor routing failed.")
+            requested_provider = request.model_override or self.config.models.default
+            return IntentResult(
+                response_text="Nyx could not execute the monitor action.",
+                intent="system_monitor",
+                target_module="system_monitor",
+                used_model=requested_provider,
+                degraded=True,
+                model_name=None,
+                token_count=None,
+            )
+
+        return IntentResult(
+            response_text=module_result.response_text,
+            intent="system_monitor",
+            target_module="system_monitor",
             used_model=module_result.used_model,
             degraded=module_result.degraded,
             model_name=module_result.model_name,

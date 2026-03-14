@@ -7,6 +7,7 @@ from nyx.modules.memory import MemoryModule
 from nyx.modules.notes import NotesModule
 from nyx.modules.screen_context import ScreenContextModule
 from nyx.modules.skills import SkillsModule
+from nyx.modules.system_monitor import SystemMonitorModule
 from nyx.modules.system_control import SystemControlModule
 from nyx.modules.tasks import TasksModule
 
@@ -18,6 +19,7 @@ __all__ = [
     "NotesModule",
     "ScreenContextModule",
     "SkillsModule",
+    "SystemMonitorModule",
     "SystemControlModule",
     "TasksModule",
 ]

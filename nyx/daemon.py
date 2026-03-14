@@ -15,6 +15,7 @@ import signal
 from nyx.bridges.base import SystemBridge
 from nyx.config import NyxConfig
 from nyx.intent_router import IntentRequest, IntentResult, IntentRouter
+from nyx.monitors import SystemMonitorService
 from nyx.skills import SkillsScheduler
 
 
@@ -27,6 +28,7 @@ class NyxDaemon:
         bridge: SystemBridge,
         router: IntentRouter,
         skills_scheduler: SkillsScheduler | None = None,
+        monitor_service: SystemMonitorService | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         """Initialize the daemon with explicit dependencies."""
@@ -35,6 +37,7 @@ class NyxDaemon:
         self.bridge = bridge
         self.router = router
         self.skills_scheduler = skills_scheduler
+        self.monitor_service = monitor_service
         self.logger = logger or logging.getLogger("nyx.daemon")
         self._shutdown_event = asyncio.Event()
 
@@ -51,11 +54,15 @@ class NyxDaemon:
         try:
             if self.skills_scheduler is not None:
                 await self.skills_scheduler.start()
+            if self.monitor_service is not None:
+                await self.monitor_service.start()
             await self._shutdown_event.wait()
         except Exception:
             self.logger.exception("Nyx daemon encountered an unrecoverable runtime error.")
             raise
         finally:
+            if self.monitor_service is not None:
+                await self.monitor_service.stop()
             if self.skills_scheduler is not None:
                 await self.skills_scheduler.stop()
             self.logger.info("Nyx daemon shutting down.")

@@ -55,6 +55,24 @@ class FakeSkillsScheduler:
         self.stopped = True
 
 
+@dataclass
+class FakeMonitorService:
+    """Minimal monitor-service stub for daemon lifecycle tests."""
+
+    started: bool = False
+    stopped: bool = False
+
+    async def start(self) -> None:
+        """Record monitor-service startup."""
+
+        self.started = True
+
+    async def stop(self) -> None:
+        """Record monitor-service shutdown."""
+
+        self.stopped = True
+
+
 def test_daemon_constructs_with_explicit_dependencies(tmp_path) -> None:
     """The daemon should accept fully injected dependencies."""
 
@@ -119,6 +137,37 @@ async def test_daemon_starts_and_stops_skill_scheduler(tmp_path, monkeypatch: py
 
     assert scheduler.started is True
     assert scheduler.stopped is True
+
+
+@pytest.mark.anyio
+async def test_daemon_starts_and_stops_monitor_service(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The daemon should manage the optional monitor-service lifecycle."""
+
+    config = load_config(tmp_path / "missing.toml")
+    bridge = StubBridge("Linux")
+    router = IntentRouter(config=config, bridge=bridge, provider_registry=FakeRegistry())
+    monitor_service = FakeMonitorService()
+    daemon = NyxDaemon(
+        config=config,
+        bridge=bridge,
+        router=router,
+        monitor_service=monitor_service,
+        logger=logging.getLogger("test"),
+    )
+
+    monkeypatch.setattr(
+        asyncio.get_running_loop(),
+        "add_signal_handler",
+        lambda *args, **kwargs: None,
+    )
+
+    task = asyncio.create_task(daemon.run_forever())
+    await asyncio.sleep(0)
+    daemon.request_shutdown()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert monitor_service.started is True
+    assert monitor_service.stopped is True
 
 
 @pytest.mark.anyio

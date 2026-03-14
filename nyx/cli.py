@@ -19,6 +19,7 @@ from nyx.config import load_config
 from nyx.daemon import NyxDaemon
 from nyx.intent_router import IntentRequest, IntentRouter
 from nyx.logging import configure_logging
+from nyx.monitors import SystemMonitorService
 from nyx.providers.registry import ProviderRegistry
 from nyx.skills import SkillsScheduler
 from nyx.ui import run_launcher
@@ -71,6 +72,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             bridge=bridge,
             router=router,
             skills_scheduler=SkillsScheduler(config=config, bridge=bridge, logger=logger),
+            monitor_service=SystemMonitorService(config=config, bridge=bridge, logger=logger),
             logger=logger,
         )
 
