@@ -156,6 +156,8 @@ async def test_system_control_parses_fenced_json_and_uses_default_screenshot_pat
                 "\n```"
             ),
             fallback_used=True,
+            degraded=True,
+            degraded_reason="local_only",
         )
     )
     bridge = FakeBridge()

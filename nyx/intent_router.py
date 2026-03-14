@@ -743,7 +743,7 @@ class IntentRouter:
             intent="unclassified",
             target_module=None,
             used_model=provider_result.provider_name,
-            degraded=provider_result.fallback_used,
+            degraded=provider_result.degraded,
             model_name=provider_result.model_name,
             token_count=provider_result.token_count,
         )

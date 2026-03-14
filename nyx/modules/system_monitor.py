@@ -324,6 +324,6 @@ class SystemMonitorModule:
             used_model=provider_result.provider_name,
             model_name=provider_result.model_name,
             token_count=provider_result.token_count,
-            degraded=provider_result.fallback_used if degraded is None else degraded,
+            degraded=provider_result.degraded if degraded is None else degraded,
             operation=operation,
         )

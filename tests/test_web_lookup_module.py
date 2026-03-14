@@ -88,10 +88,11 @@ class SequentialRegistry:
         prompt: str,
         context: dict[str, Any],
         preferred_provider_name: str | None = None,
+        preferred_tiers: tuple[str, ...] | None = None,
     ) -> ProviderQueryResult:
         """Return queued provider results in call order."""
 
-        del context, preferred_provider_name
+        del context, preferred_provider_name, preferred_tiers
         self.prompts.append(prompt)
         if not self.results:
             raise AssertionError("Unexpected provider query.")

@@ -101,12 +101,13 @@ class WebLookupModule:
                 prompt=self._build_url_summary_prompt(request_text, page, focus),
                 context=self._url_summary_context(page, focus),
                 preferred_provider_name=model_override,
+                preferred_tiers=("cloud",),
             )
             return self._result_from_provider(
                 summary_result,
                 summary_result.text.strip(),
                 plan.operation,
-                degraded=provider_result.fallback_used or summary_result.fallback_used,
+                degraded=provider_result.degraded or summary_result.degraded,
             )
 
         query = self._require_string_argument(plan.arguments, "query")
@@ -116,12 +117,13 @@ class WebLookupModule:
             prompt=self._build_search_summary_prompt(request_text, query, hits, backend),
             context=self._search_summary_context(query, hits, backend),
             preferred_provider_name=model_override,
+            preferred_tiers=("cloud",),
         )
         return self._result_from_provider(
             summary_result,
             summary_result.text.strip(),
             plan.operation,
-            degraded=backend != "searxng" or provider_result.fallback_used or summary_result.fallback_used,
+            degraded=backend != "searxng" or provider_result.degraded or summary_result.degraded,
         )
 
     def _planner_context(self) -> dict[str, Any]:
@@ -310,6 +312,6 @@ class WebLookupModule:
             used_model=provider_result.provider_name,
             model_name=provider_result.model_name,
             token_count=provider_result.token_count,
-            degraded=provider_result.fallback_used if degraded is None else degraded,
+            degraded=provider_result.degraded if degraded is None else degraded,
             operation=operation,
         )
