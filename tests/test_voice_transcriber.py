@@ -69,3 +69,25 @@ def test_extract_transcript_strips_whisper_console_noise(tmp_path: Path) -> None
     )
 
     assert transcript == "hello world"
+
+
+def test_transcribe_file_rejects_blank_audio_marker(tmp_path: Path) -> None:
+    """whisper.cpp blank-audio markers should surface as a voice-input error."""
+
+    audio_path = tmp_path / "sample.wav"
+    audio_path.write_bytes(b"wav")
+    model_path = tmp_path / "ggml-base.bin"
+    model_path.write_bytes(b"model")
+    config = load_config(tmp_path / "missing.toml")
+    transcriber = VoiceTranscriber(config=config)
+
+    transcriber._resolve_whisper_binary = lambda: Path("/usr/bin/whisper-cli")  # type: ignore[method-assign]
+    transcriber._resolve_model_path = lambda: model_path  # type: ignore[method-assign]
+
+    async def fake_run_command(*command: str) -> CommandResult:
+        return CommandResult(returncode=0, stdout="[BLANK_AUDIO]\nmain: done", stderr="")
+
+    transcriber._run_command = fake_run_command  # type: ignore[method-assign]
+
+    with pytest.raises(VoiceInputError, match="blank audio"):
+        asyncio.run(transcriber.transcribe_file(audio_path))

@@ -82,6 +82,13 @@ class VoiceTranscriber:
             message = result.stderr.strip() or result.stdout.strip() or "whisper.cpp failed"
             raise VoiceInputError(f"whisper.cpp transcription failed: {message}")
 
+        if self._contains_blank_audio_marker(result.stdout) or self._contains_blank_audio_marker(
+            result.stderr
+        ):
+            raise VoiceInputError(
+                "whisper.cpp detected blank audio. Check that the correct microphone is active, speak louder, and try recording again."
+            )
+
         transcript = self._extract_transcript(result.stdout)
         if not transcript:
             fallback = result.stderr.strip()
@@ -210,3 +217,9 @@ class VoiceTranscriber:
             lines.append(line)
 
         return " ".join(lines).strip()
+
+    def _contains_blank_audio_marker(self, raw_output: str) -> bool:
+        """Return whether raw whisper.cpp output contains a no-speech marker."""
+
+        normalized = raw_output.casefold()
+        return "[blank_audio]" in normalized or "(blank_audio)" in normalized
