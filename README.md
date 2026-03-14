@@ -9,7 +9,7 @@ Nyx is being built in phases. The current implementation includes:
 - provider routing across local and remote models
 - Hyprland bridge integration
 - GTK launcher and panel UI
-- notes, memory, RAG, screen context, git/GitHub, and tasks modules
+- notes, memory, RAG, screen context, git/GitHub, tasks, calendar, macros, and skills modules
 
 ## Development setup
 

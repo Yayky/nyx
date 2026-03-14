@@ -20,6 +20,7 @@ from nyx.daemon import NyxDaemon
 from nyx.intent_router import IntentRequest, IntentRouter
 from nyx.logging import configure_logging
 from nyx.providers.registry import ProviderRegistry
+from nyx.skills import SkillsScheduler
 from nyx.ui import run_launcher
 
 
@@ -65,7 +66,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             provider_registry=provider_registry,
             logger=logger,
         )
-        daemon = NyxDaemon(config=config, bridge=bridge, router=router, logger=logger)
+        daemon = NyxDaemon(
+            config=config,
+            bridge=bridge,
+            router=router,
+            skills_scheduler=SkillsScheduler(config=config, bridge=bridge, logger=logger),
+            logger=logger,
+        )
 
         if args.daemon:
             return asyncio.run(daemon.run_forever()) or 0

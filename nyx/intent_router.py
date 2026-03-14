@@ -20,6 +20,7 @@ from nyx.modules.memory import MemoryModule
 from nyx.modules.notes import NotesModule
 from nyx.modules.rag import RagModule
 from nyx.modules.screen_context import ScreenContextModule
+from nyx.modules.skills import SkillsModule
 from nyx.modules.system_control import SystemControlModule
 from nyx.modules.tasks import TasksModule
 from nyx.providers.base import ProviderError
@@ -64,6 +65,7 @@ class IntentRouter:
         notes_module: NotesModule | None = None,
         rag_module: RagModule | None = None,
         screen_context_module: ScreenContextModule | None = None,
+        skills_module: SkillsModule | None = None,
         system_control_module: SystemControlModule | None = None,
         tasks_module: TasksModule | None = None,
         logger: logging.Logger | None = None,
@@ -84,6 +86,7 @@ class IntentRouter:
             notes_module: Optional prebuilt notes module.
             rag_module: Optional prebuilt RAG module.
             screen_context_module: Optional prebuilt screen-context module.
+            skills_module: Optional prebuilt skills module.
             system_control_module: Optional prebuilt system-control module.
             tasks_module: Optional prebuilt tasks module.
             logger: Optional logger for router diagnostics.
@@ -112,6 +115,12 @@ class IntentRouter:
         )
         self.memory_module = memory_module or MemoryModule(
             config=config,
+            provider_registry=provider_registry,
+            logger=self.logger,
+        )
+        self.skills_module = skills_module or SkillsModule(
+            config=config,
+            bridge=bridge,
             provider_registry=provider_registry,
             logger=self.logger,
         )
@@ -193,6 +202,21 @@ class IntentRouter:
 
         if self.system_control_module.matches_request(request.text):
             return await self._route_system_control(request)
+
+        skill_result = await self.skills_module.maybe_handle(
+            request_text=request.text,
+            model_override=request.model_override,
+        )
+        if skill_result is not None:
+            return IntentResult(
+                response_text=skill_result.response_text,
+                intent="skills",
+                target_module="skills",
+                used_model=skill_result.used_model,
+                degraded=skill_result.degraded,
+                model_name=skill_result.model_name,
+                token_count=skill_result.token_count,
+            )
 
         try:
             provider_result = await self.provider_registry.query(

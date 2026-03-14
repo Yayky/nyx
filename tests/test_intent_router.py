@@ -130,6 +130,29 @@ class FakeMacrosModule:
         return "macro" in text
 
 
+@dataclass
+class FakeSkillsModule:
+    """Minimal skills module stub for router dispatch tests."""
+
+    response_text: str = "skill output"
+
+    async def maybe_handle(self, request_text: str, model_override: str | None = None):
+        """Return a deterministic skills result for explicit skill prompts."""
+
+        del request_text, model_override
+        return type(
+            "SkillsResult",
+            (),
+            {
+                "response_text": self.response_text,
+                "used_model": "codex-cli",
+                "model_name": None,
+                "token_count": None,
+                "degraded": False,
+            },
+        )()
+
+
 @pytest.mark.anyio
 async def test_router_returns_provider_result(tmp_path) -> None:
     """The router should return text from the selected provider."""
@@ -298,6 +321,37 @@ async def test_router_dispatches_macro_requests(tmp_path) -> None:
 
     assert result.intent == "macros"
     assert result.target_module == "macros"
+    assert result.used_model == "codex-cli"
+
+
+@pytest.mark.anyio
+async def test_router_dispatches_skill_requests(tmp_path) -> None:
+    """Skill-triggered prompts should route into the Phase 16 skills module."""
+
+    config = load_config(tmp_path / "missing.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        skills_module=FakeSkillsModule(),
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="run the skill Desk Summary", model_override="codex-cli", yolo=False)
+    )
+
+    assert result.intent == "skills"
+    assert result.target_module == "skills"
     assert result.used_model == "codex-cli"
 
 
