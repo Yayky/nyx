@@ -30,8 +30,12 @@ def run_launcher(
     """Run the GTK launcher, preloading ``gtk4-layer-shell`` when needed."""
 
     _ensure_layer_shell_preload()
-
-    from nyx.ui.launcher import run_launcher as run_launcher_impl
+    try:
+        run_launcher_impl = _import_launcher_impl()
+    except ModuleNotFoundError as exc:
+        if exc.name == "gi":
+            raise RuntimeError(_missing_gtk_bindings_message()) from exc
+        raise
 
     return run_launcher_impl(
         config=config,
@@ -39,6 +43,26 @@ def run_launcher(
         bridge=bridge,
         logger=logger,
         initial_prompt=initial_prompt,
+    )
+
+
+def _import_launcher_impl():
+    """Import the GTK launcher lazily after preload setup."""
+
+    from nyx.ui.launcher import run_launcher as run_launcher_impl
+
+    return run_launcher_impl
+
+
+def _missing_gtk_bindings_message() -> str:
+    """Return an actionable launcher error for missing PyGObject bindings."""
+
+    return (
+        "GTK launcher dependencies are missing from the active Python environment. "
+        "Install the system GTK bindings first, for example on Arch Linux: "
+        "`sudo pacman -S python-gobject gtk4 gtk4-layer-shell`. "
+        "If you are using a virtual environment, recreate it with "
+        "`python3 -m venv --system-site-packages .venv` so the system `gi` package is visible."
     )
 
 

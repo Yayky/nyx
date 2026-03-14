@@ -12,6 +12,7 @@ import pytest
 from nyx.bridges.base import WindowInfo
 from nyx.config import load_config
 from nyx.intent_router import IntentResult
+from nyx.ui import entrypoint
 from nyx.ui.session import OverlaySessionController
 
 
@@ -141,3 +142,35 @@ async def test_overlay_controller_filters_and_restores_sessions(tmp_path: Path) 
     assert restored is not None
     assert restored.response_text == "first response"
     assert restored.selected_session_id == 1
+
+
+def test_launcher_entrypoint_surfaces_clear_message_for_missing_gi(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Missing PyGObject bindings should produce an actionable launcher error."""
+
+    monkeypatch.setattr(entrypoint, "_ensure_layer_shell_preload", lambda: None)
+
+    def fake_import():
+        raise ModuleNotFoundError("No module named 'gi'", name="gi")
+
+    monkeypatch.setattr(entrypoint, "_import_launcher_impl", fake_import)
+
+    with pytest.raises(RuntimeError, match="python-gobject"):
+        entrypoint.run_launcher(
+            config=load_config(tmp_path / "missing.toml"),
+            daemon=FakeDaemon(
+                IntentResult(
+                    response_text="unused",
+                    intent="unclassified",
+                    target_module=None,
+                    used_model="codex-cli",
+                    degraded=False,
+                    model_name=None,
+                    token_count=None,
+                )
+            ),
+            bridge=FakeBridge(),
+            logger=logging.getLogger("test.launcher"),
+        )

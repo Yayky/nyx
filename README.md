@@ -16,10 +16,20 @@ Nyx is being built in phases. The current implementation includes:
 ## Development setup
 
 ```bash
+sudo pacman -S python-gobject gtk4 gtk4-layer-shell
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 python3 -m pytest
+```
+
+If you want to run the GTK launcher from the venv on Arch, recreate the venv with system site packages so `gi` is visible:
+
+```bash
+rm -rf .venv
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
 ## Running Nyx
@@ -53,5 +63,6 @@ python3 -m nyx --launcher
 - Local user configuration lives under `~/.config/nyx/`
 - Project notes live under `~/notes/projects/`
 - Some features require local services or credentials, such as Ollama or Google Calendar
+- The GTK launcher requires system PyGObject bindings (`gi`), `gtk4`, and `gtk4-layer-shell`
 - Voice input requires a local `whisper.cpp` CLI plus a ggml model file configured under `[voice]`
 - Live microphone input on Linux uses PipeWire `pw-record`; set `[voice].enabled = false` to disable all Nyx voice input
