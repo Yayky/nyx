@@ -47,6 +47,12 @@ class ProviderQueryResult:
         text: Final text extracted from the provider response.
         fallback_used: Whether this provider was selected from the fallback
             chain rather than the default configured provider.
+        degraded: Whether Nyx is currently operating in a degraded mode such as
+            local-only operation while configured cloud providers are
+            unavailable.
+        degraded_reason: Optional machine-readable degraded-mode reason.
+        provider_tier: Resolved provider tier such as ``local``, ``cloud``, or
+            ``cli``.
     """
 
     provider_name: str
@@ -55,6 +61,9 @@ class ProviderQueryResult:
     text: str
     fallback_used: bool
     token_count: int | None = None
+    degraded: bool = False
+    degraded_reason: str | None = None
+    provider_tier: str | None = None
 
 
 class ModelProvider(ABC):

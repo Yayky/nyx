@@ -9,7 +9,13 @@ from __future__ import annotations
 
 import logging
 
-from nyx.bridges.base import BridgeNotImplementedError, SystemBridge, WindowInfo
+from nyx.bridges.base import (
+    AudioRecordingSession,
+    BridgeNotImplementedError,
+    MonitorInfo,
+    SystemBridge,
+    WindowInfo,
+)
 
 
 class StubBridge(SystemBridge):
@@ -41,10 +47,25 @@ class StubBridge(SystemBridge):
 
         raise self._not_implemented("list_windows")
 
+    async def list_monitors(self) -> list[MonitorInfo]:
+        """Raise because monitor enumeration is not implemented in Phase 1."""
+
+        raise self._not_implemented("list_monitors")
+
+    async def get_focused_monitor(self) -> MonitorInfo | None:
+        """Raise because focused-monitor lookup is not implemented in Phase 1."""
+
+        raise self._not_implemented("get_focused_monitor")
+
     async def screenshot(self, path: str) -> bool:
         """Raise because screenshot support is not implemented in Phase 1."""
 
         raise self._not_implemented("screenshot")
+
+    async def start_audio_recording(self, path: str) -> AudioRecordingSession:
+        """Raise because microphone capture is not implemented in Phase 1."""
+
+        raise self._not_implemented("start_audio_recording")
 
     async def run_command(self, command: str, confirm_if_destructive: bool = True) -> str:
         """Raise because command execution is not implemented in Phase 1."""

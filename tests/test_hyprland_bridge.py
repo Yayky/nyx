@@ -7,7 +7,12 @@ from typing import Any
 
 import pytest
 
-from nyx.bridges.base import BridgeConfirmationRequiredError, BridgeSecurityError, WindowInfo
+from nyx.bridges.base import (
+    BridgeConfirmationRequiredError,
+    BridgeSecurityError,
+    MonitorInfo,
+    WindowInfo,
+)
 from nyx.bridges.hyprland import HyprlandBridge
 from nyx.config import load_config
 
@@ -15,17 +20,35 @@ from nyx.config import load_config
 class FakeProcess:
     """Minimal fake subprocess used to drive bridge tests."""
 
-    def __init__(self, stdout: str = "", stderr: str = "", returncode: int = 0) -> None:
+    def __init__(self, stdout: str = "", stderr: str = "", returncode: int | None = 0) -> None:
         """Store deterministic subprocess output for a bridge command."""
 
         self.returncode = returncode
         self._stdout = stdout.encode()
         self._stderr = stderr.encode()
+        self.terminated = False
 
     async def communicate(self) -> tuple[bytes, bytes]:
         """Return the configured stdout and stderr bytes."""
 
         return self._stdout, self._stderr
+
+    async def wait(self) -> int:
+        """Return the configured return code for wait-based callers."""
+
+        return 0 if self.returncode is None else self.returncode
+
+    def terminate(self) -> None:
+        """Mark the fake process as terminated."""
+
+        self.terminated = True
+        self.returncode = -15
+
+    def kill(self) -> None:
+        """Mark the fake process as killed."""
+
+        self.terminated = True
+        self.returncode = -9
 
 
 class FakeSubprocessFactory:
@@ -106,6 +129,40 @@ async def test_list_windows_parses_hyprland_clients_json(tmp_path: Path) -> None
         WindowInfo(app_name="kitty", window_title="shell", workspace="2"),
         WindowInfo(app_name="brave-browser", window_title="docs", workspace="4"),
     ]
+
+
+@pytest.mark.anyio
+async def test_get_focused_monitor_parses_hyprland_monitors_json(tmp_path: Path) -> None:
+    """Focused monitor lookup should parse Hyprland monitor payloads."""
+
+    factory = FakeSubprocessFactory(
+        {
+            ("hyprctl", "monitors", "-j"): FakeProcess(
+                stdout=(
+                    '[{"name":"HDMI-A-1","description":"Dell 27","width":2560,"height":1440,'
+                    '"x":1920,"y":0,"focused":false},'
+                    '{"name":"eDP-2","description":"Laptop Panel","width":1920,"height":1080,'
+                    '"x":0,"y":0,"focused":true}]'
+                )
+            )
+        }
+    )
+    bridge = HyprlandBridge(
+        config=load_config(tmp_path / "missing.toml"),
+        subprocess_factory=factory,
+    )
+
+    monitor = await bridge.get_focused_monitor()
+
+    assert monitor == MonitorInfo(
+        name="eDP-2",
+        description="Laptop Panel",
+        width=1920,
+        height=1080,
+        x=0,
+        y=0,
+        focused=True,
+    )
 
 
 @pytest.mark.anyio
@@ -204,3 +261,42 @@ async def test_set_volume_runs_wpctl_commands(tmp_path: Path) -> None:
         ("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"),
         ("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "30%"),
     ]
+
+
+@pytest.mark.anyio
+async def test_start_audio_recording_uses_pw_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Microphone capture should start PipeWire recording and finalize on stop."""
+
+    output_path = tmp_path / "capture.wav"
+    process = FakeProcess(stdout="", stderr="", returncode=None)
+    factory = FakeSubprocessFactory({})
+    factory.responses = {
+        (
+            "/usr/bin/pw-record",
+            "--media-type=Audio",
+            "--media-category=Capture",
+            "--media-role=Communication",
+            "--rate",
+            "16000",
+            "--channels",
+            "1",
+            "--format",
+            "s16",
+            "--container",
+            "wav",
+            str(output_path),
+        ): process
+    }
+    monkeypatch.setattr("nyx.bridges.hyprland.shutil.which", lambda name: "/usr/bin/pw-record")
+    bridge = HyprlandBridge(
+        config=load_config(tmp_path / "missing.toml"),
+        subprocess_factory=factory,
+    )
+
+    session = await bridge.start_audio_recording(str(output_path))
+    output_path.write_bytes(b"RIFF" + (b"\x00" * 128))
+
+    result = await session.stop()
+
+    assert result is True
+    assert process.terminated is True

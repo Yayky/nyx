@@ -397,3 +397,82 @@ async def test_provider_registry_uses_fallback_chain(tmp_path) -> None:
     assert result.text == "fallback answer"
     assert result.provider_name == "anthropic"
     assert result.fallback_used is True
+
+
+@pytest.mark.anyio
+async def test_provider_registry_marks_local_only_degraded_when_cloud_is_unavailable(tmp_path) -> None:
+    """Local results should be marked degraded when no configured cloud provider is available."""
+
+    @dataclass
+    class FakeProvider(ModelProvider):
+        """Small provider stub used to verify degraded-mode behavior."""
+
+        available: bool
+        response: str
+
+        def __init__(self, name: str, provider_type: str, available: bool, response: str) -> None:
+            super().__init__(ProviderConfig(name=name, type=provider_type, options={}))
+            self.available = available
+            self.response = response
+
+        async def query(self, prompt: str, context: dict[str, Any]) -> str:
+            del prompt, context
+            return self.response
+
+        async def is_available(self) -> bool:
+            return self.available
+
+    config = load_config(tmp_path / "missing.toml")
+    registry = ProviderRegistry(config)
+    registry.providers = {
+        "ollama-local": FakeProvider("ollama-local", "ollama", available=True, response="local answer"),
+        "anthropic": FakeProvider("anthropic", "anthropic", available=False, response=""),
+    }
+    config.models.default = "ollama-local"
+    config.models.fallback = ["anthropic"]
+
+    result = await registry.query("hello", {}, preferred_provider_name=None)
+
+    assert result.provider_name == "ollama-local"
+    assert result.degraded is True
+    assert result.degraded_reason == "local_only"
+    assert result.provider_tier == "local"
+
+
+@pytest.mark.anyio
+async def test_provider_registry_prefers_cloud_tier_when_requested(tmp_path) -> None:
+    """Tier-aware queries should select a cloud provider before local fallbacks."""
+
+    @dataclass
+    class FakeProvider(ModelProvider):
+        """Small provider stub used to verify preferred-tier ordering."""
+
+        available: bool
+        response: str
+
+        def __init__(self, name: str, provider_type: str, available: bool, response: str) -> None:
+            super().__init__(ProviderConfig(name=name, type=provider_type, options={}))
+            self.available = available
+            self.response = response
+
+        async def query(self, prompt: str, context: dict[str, Any]) -> str:
+            del prompt, context
+            return self.response
+
+        async def is_available(self) -> bool:
+            return self.available
+
+    config = load_config(tmp_path / "missing.toml")
+    registry = ProviderRegistry(config)
+    registry.providers = {
+        "ollama-local": FakeProvider("ollama-local", "ollama", available=True, response="local answer"),
+        "anthropic": FakeProvider("anthropic", "anthropic", available=True, response="cloud answer"),
+    }
+    config.models.default = "ollama-local"
+    config.models.fallback = ["anthropic"]
+
+    result = await registry.query("hello", {}, preferred_provider_name=None, preferred_tiers=("cloud",))
+
+    assert result.provider_name == "anthropic"
+    assert result.provider_tier == "cloud"
+    assert result.degraded is False

@@ -325,7 +325,7 @@ class SystemControlModule:
             used_model=provider_result.provider_name,
             model_name=provider_result.model_name,
             token_count=provider_result.token_count,
-            degraded=provider_result.fallback_used,
+            degraded=provider_result.degraded,
             operation=operation,
         )
 

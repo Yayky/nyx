@@ -7,6 +7,7 @@ before Wayland client symbols are resolved.
 
 from __future__ import annotations
 
+import asyncio
 import ctypes.util
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import Final
 from nyx.bridges.base import SystemBridge
 from nyx.config import NyxConfig
 from nyx.daemon import NyxDaemon
+from nyx.ui.monitors import MonitorSelectionState
 
 PRELOAD_ENV_FLAG: Final[str] = "NYX_LAYER_SHELL_PRELOADED"
 
@@ -30,15 +32,62 @@ def run_launcher(
     """Run the GTK launcher, preloading ``gtk4-layer-shell`` when needed."""
 
     _ensure_layer_shell_preload()
-
-    from nyx.ui.launcher import run_launcher as run_launcher_impl
+    monitor_state = _load_monitor_selection_state(config, bridge, logger)
+    try:
+        run_launcher_impl = _import_launcher_impl()
+    except ModuleNotFoundError as exc:
+        if exc.name == "gi":
+            raise RuntimeError(_missing_gtk_bindings_message()) from exc
+        raise
 
     return run_launcher_impl(
         config=config,
         daemon=daemon,
         bridge=bridge,
         logger=logger,
+        monitor_state=monitor_state,
         initial_prompt=initial_prompt,
+    )
+
+
+def _import_launcher_impl():
+    """Import the GTK launcher lazily after preload setup."""
+
+    from nyx.ui.launcher import run_launcher as run_launcher_impl
+
+    return run_launcher_impl
+
+
+def _load_monitor_selection_state(
+    config: NyxConfig,
+    bridge: SystemBridge,
+    logger,
+) -> MonitorSelectionState:
+    """Preload monitor-selection state from the bridge before GTK starts."""
+
+    if config.ui.overlay_monitor != "focused":
+        return MonitorSelectionState()
+
+    try:
+        focused_monitor = asyncio.run(bridge.get_focused_monitor())
+    except Exception as exc:
+        logger.warning("Unable to resolve focused monitor for launcher placement: %s", exc)
+        return MonitorSelectionState()
+
+    if focused_monitor is None or not focused_monitor.name:
+        return MonitorSelectionState()
+    return MonitorSelectionState(focused_monitor_name=focused_monitor.name)
+
+
+def _missing_gtk_bindings_message() -> str:
+    """Return an actionable launcher error for missing PyGObject bindings."""
+
+    return (
+        "GTK launcher dependencies are missing from the active Python environment. "
+        "Install the system GTK bindings first, for example on Arch Linux: "
+        "`sudo pacman -S python-gobject gtk4 gtk4-layer-shell`. "
+        "If you are using a virtual environment, recreate it with "
+        "`python3 -m venv --system-site-packages .venv` so the system `gi` package is visible."
     )
 
 

@@ -22,9 +22,11 @@ import signal
 from typing import Any
 
 from nyx.bridges.base import (
+    AudioRecordingSession,
     BridgeCommandError,
     BridgeConfirmationRequiredError,
     BridgeSecurityError,
+    MonitorInfo,
     SystemBridge,
     WindowInfo,
 )
@@ -146,6 +148,28 @@ class HyprlandBridge(SystemBridge):
         entries = await self._get_client_entries()
         return [self._window_info_from_hyprctl(entry) for entry in entries]
 
+    async def list_monitors(self) -> list[MonitorInfo]:
+        """List Hyprland monitor outputs as structured monitor metadata."""
+
+        data = await self._hyprctl_json("monitors")
+        if not isinstance(data, list):
+            return []
+        monitors: list[MonitorInfo] = []
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            monitors.append(self._monitor_info_from_hyprctl(entry))
+        return monitors
+
+    async def get_focused_monitor(self) -> MonitorInfo | None:
+        """Return the currently focused Hyprland monitor when available."""
+
+        monitors = await self.list_monitors()
+        for monitor in monitors:
+            if monitor.focused:
+                return monitor
+        return monitors[0] if monitors else None
+
     async def screenshot(self, path: str) -> bool:
         """Capture a screenshot using ``grim``."""
 
@@ -153,6 +177,62 @@ class HyprlandBridge(SystemBridge):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         result = await self._run_command_exec("grim", str(output_path), check=False)
         return result.returncode == 0
+
+    async def start_audio_recording(self, path: str) -> AudioRecordingSession:
+        """Begin recording microphone audio to a WAV file using PipeWire."""
+
+        output_path = Path(path).expanduser()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        record_binary = shutil.which("pw-record")
+        if record_binary is None:
+            raise BridgeCommandError(
+                "pw-record was not found. Install PipeWire tools to use live microphone input."
+            )
+
+        process = await self._subprocess_factory(
+            record_binary,
+            "--media-type=Audio",
+            "--media-category=Capture",
+            "--media-role=Communication",
+            "--rate",
+            "16000",
+            "--channels",
+            "1",
+            "--format",
+            "s16",
+            "--container",
+            "wav",
+            str(output_path),
+            stdout=PIPE,
+            stderr=PIPE,
+        )
+
+        async def _stop_recording() -> bool:
+            """Terminate the capture process and validate the recorded output."""
+
+            if process.returncode is None:
+                process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+
+            stdout_bytes, stderr_bytes = await process.communicate()
+            stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+            stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
+            if output_path.exists() and output_path.stat().st_size > 44:
+                return True
+
+            if process.returncode not in (0, -signal.SIGTERM):
+                raise BridgeCommandError(
+                    "pw-record failed with exit code "
+                    f"{process.returncode}: {stderr or stdout or 'microphone capture failed'}"
+                )
+            return False
+
+        return AudioRecordingSession(stop_callback=_stop_recording)
 
     async def run_command(self, command: str, confirm_if_destructive: bool = True) -> str:
         """Execute a shell command after bridge-level safety checks.
@@ -367,6 +447,19 @@ class HyprlandBridge(SystemBridge):
             app_name=str(data.get("class", "")),
             window_title=str(data.get("title", "")),
             workspace=workspace_id,
+        )
+
+    def _monitor_info_from_hyprctl(self, data: dict[str, Any]) -> MonitorInfo:
+        """Convert a Hyprland monitor payload into ``MonitorInfo``."""
+
+        return MonitorInfo(
+            name=str(data.get("name", "")),
+            description=str(data.get("description", "")),
+            width=int(data.get("width", 0) or 0),
+            height=int(data.get("height", 0) or 0),
+            x=int(data.get("x", 0) or 0),
+            y=int(data.get("y", 0) or 0),
+            focused=bool(data.get("focused", False)),
         )
 
     def _parse_active_window_text(self, stdout: str) -> WindowInfo | None:

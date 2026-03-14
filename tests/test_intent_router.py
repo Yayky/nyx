@@ -76,6 +76,164 @@ class FakeGitHubModule:
         return "git diff" in text
 
 
+@dataclass
+class FakeCalendarModule:
+    """Minimal calendar module stub for router dispatch tests."""
+
+    async def handle(self, request_text: str, model_override: str | None = None):
+        """Return a deterministic calendar module result."""
+
+        del request_text, model_override
+        return type(
+            "CalendarResult",
+            (),
+            {
+                "response_text": "calendar summary",
+                "used_model": "codex-cli",
+                "model_name": None,
+                "token_count": None,
+                "degraded": False,
+            },
+        )()
+
+    @staticmethod
+    def matches_request(text: str) -> bool:
+        """Match explicit calendar prompts."""
+
+        return "calendar" in text or "agenda" in text
+
+
+@dataclass
+class FakeCrossDeviceSyncModule:
+    """Minimal cross-device sync module stub for router dispatch tests."""
+
+    async def handle(self, request_text: str, model_override: str | None = None):
+        """Return a deterministic sync module result."""
+
+        del request_text, model_override
+        return type(
+            "CrossDeviceSyncResult",
+            (),
+            {
+                "response_text": "sync output",
+                "used_model": "codex-cli",
+                "model_name": None,
+                "token_count": None,
+                "degraded": False,
+            },
+        )()
+
+    @staticmethod
+    def matches_request(text: str) -> bool:
+        """Match explicit sync prompts."""
+
+        return "cross-device sync" in text or "syncthing" in text
+
+
+@dataclass
+class FakeMacrosModule:
+    """Minimal macros module stub for router dispatch tests."""
+
+    async def handle(self, request_text: str, model_override: str | None = None):
+        """Return a deterministic macros module result."""
+
+        del request_text, model_override
+        return type(
+            "MacrosResult",
+            (),
+            {
+                "response_text": "macro output",
+                "used_model": "codex-cli",
+                "model_name": None,
+                "token_count": None,
+                "degraded": False,
+            },
+        )()
+
+    @staticmethod
+    def matches_request(text: str) -> bool:
+        """Match explicit macro prompts."""
+
+        return "macro" in text
+
+
+@dataclass
+class FakeSkillsModule:
+    """Minimal skills module stub for router dispatch tests."""
+
+    response_text: str = "skill output"
+
+    async def maybe_handle(self, request_text: str, model_override: str | None = None):
+        """Return a deterministic skills result for explicit skill prompts."""
+
+        del request_text, model_override
+        return type(
+            "SkillsResult",
+            (),
+            {
+                "response_text": self.response_text,
+                "used_model": "codex-cli",
+                "model_name": None,
+                "token_count": None,
+                "degraded": False,
+            },
+        )()
+
+
+@dataclass
+class FakeSystemMonitorModule:
+    """Minimal system-monitor module stub for router dispatch tests."""
+
+    async def handle(self, request_text: str, model_override: str | None = None):
+        """Return a deterministic system-monitor module result."""
+
+        del request_text, model_override
+        return type(
+            "MonitorResult",
+            (),
+            {
+                "response_text": "monitor output",
+                "used_model": "codex-cli",
+                "model_name": None,
+                "token_count": None,
+                "degraded": False,
+            },
+        )()
+
+    @staticmethod
+    def matches_request(text: str) -> bool:
+        """Match explicit monitor prompts."""
+
+        return "monitor" in text or "alert me" in text
+
+
+@dataclass
+class FakeWebLookupModule:
+    """Minimal web-lookup module stub for router dispatch tests."""
+
+    async def handle(self, request_text: str, model_override: str | None = None):
+        """Return a deterministic web module result."""
+
+        del request_text, model_override
+        return type(
+            "WebResult",
+            (),
+            {
+                "response_text": "web lookup output",
+                "used_model": "codex-cli",
+                "model_name": None,
+                "token_count": None,
+                "degraded": False,
+            },
+        )()
+
+    @staticmethod
+    def matches_request(text: str) -> bool:
+        """Match explicit web lookup prompts."""
+
+        return "look up" in text or "search web" in text or "https://" in text
+
+
 @pytest.mark.anyio
 async def test_router_returns_provider_result(tmp_path) -> None:
     """The router should return text from the selected provider."""
@@ -155,6 +313,37 @@ async def test_router_returns_degraded_message_when_provider_fails(tmp_path) -> 
 
 
 @pytest.mark.anyio
+async def test_router_dispatches_web_lookup_requests(tmp_path) -> None:
+    """Explicit web requests should route into the Phase 19 web module."""
+
+    config = load_config(tmp_path / "missing.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="ollama-local",
+            provider_type="ollama",
+            model_name="qwen2.5:7b",
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        web_lookup_module=FakeWebLookupModule(),
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="look up the latest nyx release notes", model_override=None, yolo=False)
+    )
+
+    assert result.intent == "web_lookup"
+    assert result.target_module == "web_lookup"
+    assert result.response_text == "web lookup output"
+
+
+@pytest.mark.anyio
 async def test_router_dispatches_system_control_requests(tmp_path) -> None:
     """Obvious system-control prompts should route into the dedicated module."""
 
@@ -213,6 +402,99 @@ async def test_router_dispatches_notes_requests(tmp_path) -> None:
 
     assert result.intent == "notes"
     assert result.target_module == "notes"
+    assert result.used_model == "codex-cli"
+
+
+@pytest.mark.anyio
+async def test_router_dispatches_macro_requests(tmp_path) -> None:
+    """Explicit macro prompts should route into the Phase 15 module."""
+
+    config = load_config(tmp_path / "missing.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        macros_module=FakeMacrosModule(),
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="run the desk summary macro", model_override="codex-cli", yolo=False)
+    )
+
+    assert result.intent == "macros"
+    assert result.target_module == "macros"
+    assert result.used_model == "codex-cli"
+
+
+@pytest.mark.anyio
+async def test_router_dispatches_skill_requests(tmp_path) -> None:
+    """Skill-triggered prompts should route into the Phase 16 skills module."""
+
+    config = load_config(tmp_path / "missing.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        skills_module=FakeSkillsModule(),
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="run the skill Desk Summary", model_override="codex-cli", yolo=False)
+    )
+
+    assert result.intent == "skills"
+    assert result.target_module == "skills"
+    assert result.used_model == "codex-cli"
+
+
+@pytest.mark.anyio
+async def test_router_dispatches_system_monitor_requests(tmp_path) -> None:
+    """Monitor-management prompts should route into the Phase 17 module."""
+
+    config = load_config(tmp_path / "missing.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        system_monitor_module=FakeSystemMonitorModule(),
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="alert me if memory usage exceeds 90 percent", model_override="codex-cli", yolo=False)
+    )
+
+    assert result.intent == "system_monitor"
+    assert result.target_module == "system_monitor"
     assert result.used_model == "codex-cli"
 
 
@@ -279,6 +561,100 @@ async def test_router_dispatches_git_github_requests(tmp_path) -> None:
 
     assert result.intent == "git_github"
     assert result.target_module == "git_github"
+
+
+@pytest.mark.anyio
+async def test_router_dispatches_calendar_requests(tmp_path) -> None:
+    """Explicit calendar prompts should route into the Phase 14 module."""
+
+    config = load_config(tmp_path / "config.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        calendar_module=FakeCalendarModule(),
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="show my calendar today", model_override="codex-cli", yolo=False)
+    )
+
+    assert result.intent == "calendar"
+    assert result.target_module == "calendar"
+
+
+@pytest.mark.anyio
+async def test_router_dispatches_cross_device_sync_requests(tmp_path) -> None:
+    """Explicit sync prompts should route into the Phase 21 module."""
+
+    config = load_config(tmp_path / "config.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        cross_device_sync_module=FakeCrossDeviceSyncModule(),
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="show cross-device sync status", model_override="codex-cli", yolo=False)
+    )
+
+    assert result.intent == "cross_device_sync"
+    assert result.target_module == "cross_device_sync"
+    assert result.response_text == "sync output"
+
+
+@pytest.mark.anyio
+async def test_router_dispatches_task_requests(tmp_path) -> None:
+    """Explicit task prompts should route into the Phase 13 tasks module."""
+
+    config = load_config(tmp_path / "config.toml")
+    config.notes.notes_dir = tmp_path / "notes"
+    config.notes.projects_dir = config.notes.notes_dir / "projects"
+    (config.notes.projects_dir / "nyx").mkdir(parents=True)
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text='{"operation":"add_task","arguments":{"project":"nyx","content":"Write tests"}}',
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(text="add a task for nyx to write tests", model_override="codex-cli", yolo=False)
+    )
+
+    assert result.intent == "tasks"
+    assert result.target_module == "tasks"
+    assert result.used_model == "codex-cli"
 
 
 @pytest.mark.anyio

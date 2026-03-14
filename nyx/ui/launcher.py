@@ -22,6 +22,7 @@ from gi.repository import Gdk, GLib, Gtk, Gtk4LayerShell
 from nyx.bridges.base import SystemBridge
 from nyx.config import NyxConfig
 from nyx.daemon import NyxDaemon
+from nyx.ui.monitors import MonitorSelectionState, resolve_overlay_monitor
 from nyx.ui.panel import NyxPanelWindow
 from nyx.ui.session import OverlaySessionController, OverlayViewState
 from nyx.ui.styles import install_ui_css
@@ -36,6 +37,7 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         config: NyxConfig,
         controller: OverlaySessionController,
         logger: logging.Logger,
+        monitor_state: MonitorSelectionState,
         initial_prompt: str = "",
     ) -> None:
         """Create and configure the launcher window and widgets."""
@@ -44,6 +46,7 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         self.config = config
         self.controller = controller
         self.logger = logger
+        self.monitor_state = monitor_state
         self._last_response_text = ""
         self._initial_prompt = initial_prompt
         self._submission_task: asyncio.Task[None] | None = None
@@ -63,7 +66,7 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
     def _install_css(self) -> None:
         """Install the launcher CSS provider on the current display."""
 
-        install_ui_css()
+        install_ui_css(self.config.ui.font)
 
     def _configure_layer_shell(self) -> None:
         """Apply the documented top-center layer-shell behavior."""
@@ -88,35 +91,10 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
             Gtk4LayerShell.set_monitor(self, monitor)
 
     def _resolve_monitor(self):
-        """Resolve the configured monitor selection for the launcher.
-
-        Phase 4 leaves ``focused`` unset so the compositor can place the
-        surface naturally on the focused output. ``primary`` maps to the first
-        monitor exposed by GTK4, and explicit numeric values are treated as
-        one-based monitor indices.
-        """
+        """Resolve the configured monitor selection for the launcher."""
 
         display = self.get_display()
-        if display is None:
-            return None
-
-        selection = self.config.ui.overlay_monitor
-        if selection == "focused":
-            return None
-
-        monitors = display.get_monitors()
-        monitor_count = monitors.get_n_items()
-        if monitor_count == 0:
-            return None
-
-        if selection == "primary":
-            return monitors.get_item(0)
-
-        if selection.isdigit():
-            index = max(0, int(selection) - 1)
-            if index < monitor_count:
-                return monitors.get_item(index)
-        return None
+        return resolve_overlay_monitor(display, self.config.ui.overlay_monitor, self.monitor_state)
 
     def _build_layout(self) -> None:
         """Create the Phase 4 launcher widget tree."""
@@ -127,10 +105,55 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         root.set_margin_start(16)
         root.set_margin_end(16)
         root.add_css_class("nyx-overlay-window")
+        root.add_css_class("nyx-launcher-shell")
         self.set_child(root)
+
+        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        header_row.add_css_class("nyx-header-row")
+        root.append(header_row)
+
+        brand_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        brand_box.set_hexpand(True)
+        header_row.append(brand_box)
+
+        brand_title = Gtk.Label(label="NYX", xalign=0.0)
+        brand_title.add_css_class("nyx-brand-title")
+        brand_box.append(brand_title)
+
+        brand_subtitle = Gtk.Label(
+            label=f"Summon with {self.config.ui.summon_hotkey} · Ctrl+H for panel · Ctrl+, for settings",
+            xalign=0.0,
+        )
+        brand_subtitle.add_css_class("nyx-brand-subtitle")
+        brand_box.append(brand_subtitle)
+
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        actions.add_css_class("nyx-toolbar")
+        header_row.append(actions)
+
+        new_button = Gtk.Button(label="New")
+        new_button.add_css_class("flat")
+        new_button.connect("clicked", self._on_new_clicked)
+        actions.append(new_button)
+
+        history_button = Gtk.Button(label="History")
+        history_button.add_css_class("flat")
+        history_button.connect("clicked", self._on_history_clicked)
+        actions.append(history_button)
+
+        settings_button = Gtk.Button(label="Settings")
+        settings_button.add_css_class("flat")
+        settings_button.connect("clicked", self._on_settings_clicked)
+        actions.append(settings_button)
+
+        close_button = Gtk.Button(label="Dismiss")
+        close_button.add_css_class("flat")
+        close_button.connect("clicked", self._on_close_clicked)
+        actions.append(close_button)
 
         self.status_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.status_row.set_halign(Gtk.Align.FILL)
+        self.status_row.add_css_class("nyx-status-row")
         root.append(self.status_row)
 
         self.spinner = Gtk.Spinner()
@@ -161,12 +184,12 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         self.prompt_view = Gtk.TextView()
         self.prompt_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self.prompt_view.set_monospace(True)
-        self.prompt_view.set_top_margin(4)
-        self.prompt_view.set_bottom_margin(4)
-        self.prompt_view.set_left_margin(4)
-        self.prompt_view.set_right_margin(4)
+        self.prompt_view.set_top_margin(8)
+        self.prompt_view.set_bottom_margin(8)
+        self.prompt_view.set_left_margin(10)
+        self.prompt_view.set_right_margin(10)
         self.prompt_view.set_vexpand(False)
-        self.prompt_view.set_size_request(-1, 72)
+        self.prompt_view.set_size_request(-1, 96)
         prompt_frame.append(self.prompt_view)
 
         key_controller = Gtk.EventControllerKey()
@@ -191,10 +214,10 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         self.response_view.set_cursor_visible(False)
         self.response_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self.response_view.set_monospace(True)
-        self.response_view.set_top_margin(4)
-        self.response_view.set_bottom_margin(4)
-        self.response_view.set_left_margin(4)
-        self.response_view.set_right_margin(4)
+        self.response_view.set_top_margin(10)
+        self.response_view.set_bottom_margin(10)
+        self.response_view.set_left_margin(10)
+        self.response_view.set_right_margin(10)
         response_scroll.set_child(self.response_view)
 
     def _chip_label(self) -> Gtk.Label:
@@ -274,6 +297,12 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
             application = self.get_application()
             if application is not None and hasattr(application, "show_panel"):
                 application.show_panel()
+            return True
+
+        if state & Gdk.ModifierType.CONTROL_MASK and keyval == Gdk.KEY_comma:
+            application = self.get_application()
+            if application is not None and hasattr(application, "show_panel"):
+                application.show_panel("settings")
             return True
 
         if state & Gdk.ModifierType.CONTROL_MASK and keyval in {Gdk.KEY_c, Gdk.KEY_C}:
@@ -363,6 +392,38 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         self.prompt_view.grab_focus()
         self._move_cursor_to_end(self.prompt_view)
 
+    def _on_new_clicked(self, button: Gtk.Button) -> None:
+        """Start a new conversation thread in-place."""
+
+        del button
+        state = self.controller.start_new_conversation()
+        self._apply_state(state)
+        self._set_prompt_text("")
+        self.focus_prompt()
+
+    def _on_history_clicked(self, button: Gtk.Button) -> None:
+        """Open the full panel/history view."""
+
+        del button
+        application = self.get_application()
+        if application is not None and hasattr(application, "show_panel"):
+            application.show_panel("history")
+
+    def _on_settings_clicked(self, button: Gtk.Button) -> None:
+        """Open the panel directly in settings mode."""
+
+        del button
+        application = self.get_application()
+        if application is not None and hasattr(application, "show_panel"):
+            application.show_panel("settings")
+
+    def _on_close_clicked(self, button: Gtk.Button) -> None:
+        """Dismiss the launcher application."""
+
+        del button
+        self.close()
+        self.get_application().quit()
+
 
 class NyxLauncherApplication(Gtk.Application):
     """GTK application wrapper for launcher and panel overlay windows."""
@@ -373,6 +434,7 @@ class NyxLauncherApplication(Gtk.Application):
         daemon: NyxDaemon,
         bridge: SystemBridge,
         logger: logging.Logger,
+        monitor_state: MonitorSelectionState,
         initial_prompt: str = "",
     ) -> None:
         """Initialize the application with injected Nyx runtime dependencies."""
@@ -382,6 +444,7 @@ class NyxLauncherApplication(Gtk.Application):
         self.daemon = daemon
         self.bridge = bridge
         self.logger = logger
+        self.monitor_state = monitor_state
         self.initial_prompt = initial_prompt
         self.launcher_window: NyxLauncherWindow | None = None
         self.panel_window: NyxPanelWindow | None = None
@@ -393,6 +456,16 @@ class NyxLauncherApplication(Gtk.Application):
             logger=logger,
         )
         self.connect("activate", self._on_activate)
+
+    def update_config(self, new_config: NyxConfig) -> None:
+        """Refresh shared runtime config references after a settings save."""
+
+        self.config = new_config
+        self.controller.config = new_config
+        if self.launcher_window is not None:
+            self.launcher_window.config = new_config
+        if self.panel_window is not None:
+            self.panel_window.config = new_config
 
     def _on_activate(self, app: Gtk.Application) -> None:
         """Create or re-present the correct overlay window on activation."""
@@ -417,12 +490,13 @@ class NyxLauncherApplication(Gtk.Application):
                 config=self.config,
                 controller=self.controller,
                 logger=self.logger,
+                monitor_state=self.monitor_state,
                 initial_prompt=self.initial_prompt,
             )
         self.launcher_window.present()
         self.launcher_window.focus_prompt()
 
-    def show_panel(self) -> None:
+    def show_panel(self, page_name: str = "history") -> None:
         """Show the history/search panel and hide launcher mode."""
 
         if self.launcher_window is not None:
@@ -433,8 +507,9 @@ class NyxLauncherApplication(Gtk.Application):
                 config=self.config,
                 controller=self.controller,
                 logger=self.logger,
+                monitor_state=self.monitor_state,
             )
-        self.panel_window.refresh_from_controller()
+        self.panel_window.refresh_from_controller(page_name)
         self.panel_window.present()
         self.panel_window.focus_prompt()
 
@@ -458,6 +533,7 @@ def run_launcher(
     daemon: NyxDaemon,
     bridge: SystemBridge,
     logger: logging.Logger,
+    monitor_state: MonitorSelectionState,
     initial_prompt: str = "",
 ) -> int:
     """Run the GTK launcher application.
@@ -491,6 +567,7 @@ def run_launcher(
         daemon=daemon,
         bridge=bridge,
         logger=logger,
+        monitor_state=monitor_state,
         initial_prompt=initial_prompt,
     )
     return app.run(None)

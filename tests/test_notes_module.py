@@ -92,6 +92,8 @@ async def test_notes_capture_routes_to_existing_project_when_auto_sort_enabled(t
                 model_name="qwen2.5:7b",
                 text='{"operation":"route_to_project","arguments":{"project":"alpha","content":"Refactor auth flow"}}',
                 fallback_used=True,
+                degraded=True,
+                degraded_reason="local_only",
             )
         ]
     )

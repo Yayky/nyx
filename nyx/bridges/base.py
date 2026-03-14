@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Awaitable, Callable
 
 
 class BridgeNotImplementedError(RuntimeError):
@@ -36,6 +37,36 @@ class WindowInfo:
     workspace: str | None
 
 
+@dataclass(slots=True)
+class MonitorInfo:
+    """Metadata describing one display output exposed by the platform bridge."""
+
+    name: str
+    description: str
+    width: int
+    height: int
+    x: int
+    y: int
+    focused: bool
+
+
+@dataclass(slots=True)
+class AudioRecordingSession:
+    """Handle for one in-progress microphone recording.
+
+    Attributes:
+        stop_callback: Async callback that finalizes the capture and returns
+            ``True`` when the recording completed successfully.
+    """
+
+    stop_callback: Callable[[], Awaitable[bool]]
+
+    async def stop(self) -> bool:
+        """Finalize the recording and report whether usable audio was produced."""
+
+        return await self.stop_callback()
+
+
 class SystemBridge(ABC):
     """Abstract platform bridge for all OS-specific system operations."""
 
@@ -52,8 +83,20 @@ class SystemBridge(ABC):
         """List known windows visible to the platform implementation."""
 
     @abstractmethod
+    async def list_monitors(self) -> list[MonitorInfo]:
+        """List known monitor outputs visible to the platform implementation."""
+
+    @abstractmethod
+    async def get_focused_monitor(self) -> MonitorInfo | None:
+        """Return the currently focused monitor when the platform exposes one."""
+
+    @abstractmethod
     async def screenshot(self, path: str) -> bool:
         """Capture a screenshot to the supplied path."""
+
+    @abstractmethod
+    async def start_audio_recording(self, path: str) -> AudioRecordingSession:
+        """Begin recording microphone audio to the supplied path."""
 
     @abstractmethod
     async def run_command(self, command: str, confirm_if_destructive: bool = True) -> str:
