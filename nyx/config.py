@@ -578,7 +578,7 @@ def _default_config_dict() -> dict[str, Any]:
             "overlay_anchor": "top-center",
             "overlay_monitor": "focused",
             "launcher_width": 760,
-            "launcher_height": 308,
+            "launcher_height": 258,
             "panel_width": 420,
             "font": "monospace 12",
             "summon_hotkey": "Super+A",

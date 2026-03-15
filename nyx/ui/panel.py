@@ -143,7 +143,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.backdrop_picture.add_css_class("nyx-backdrop")
         overlay.set_child(self.backdrop_picture)
 
-        stage = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        stage = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         stage.set_margin_top(10)
         stage.set_margin_bottom(10)
         stage.set_margin_start(10)
@@ -181,6 +181,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         history_title = Gtk.Label(label="Conversations", xalign=0.0)
         history_title.add_css_class("nyx-section-title")
+        history_title.add_css_class("nyx-sidebar-title")
         history_page.append(history_title)
 
         history_help = Gtk.Label(
@@ -188,7 +189,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
             xalign=0.0,
         )
         history_help.set_wrap(True)
-        history_help.add_css_class("nyx-settings-help")
+        history_help.add_css_class("nyx-sidebar-copy")
         history_page.append(history_help)
 
         self.search_entry = Gtk.SearchEntry()
@@ -234,11 +235,11 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         settings_scroll.set_child(self.settings_editor)
         self.sidebar_stack.add_titled(settings_page, "settings", "Settings")
 
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         main_box.set_hexpand(True)
         stage.append(main_box)
 
-        thread_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        thread_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         thread_pane.add_css_class("nyx-thread-pane")
         thread_pane.set_vexpand(True)
         main_box.append(thread_pane)
@@ -255,6 +256,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.status_row.append(self.tokens_label)
 
         self.degraded_label = self._chip_label("degraded")
+        self.degraded_label.set_visible(False)
         self.status_row.append(self.degraded_label)
 
         self.window_label = self._chip_label()
@@ -275,16 +277,16 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.response_view.set_cursor_visible(False)
         self.response_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self.response_view.set_monospace(False)
-        self.response_view.set_top_margin(10)
-        self.response_view.set_bottom_margin(10)
-        self.response_view.set_left_margin(10)
-        self.response_view.set_right_margin(10)
+        self.response_view.set_top_margin(8)
+        self.response_view.set_bottom_margin(8)
+        self.response_view.set_left_margin(8)
+        self.response_view.set_right_margin(8)
         self.response_view.add_css_class("nyx-thread-view")
         response_scroll.set_child(self.response_view)
 
         composer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         composer.add_css_class("nyx-composer")
-        main_box.append(composer)
+        thread_pane.append(composer)
 
         prompt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         prompt_box.set_hexpand(True)
@@ -297,7 +299,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.prompt_view.set_bottom_margin(8)
         self.prompt_view.set_left_margin(10)
         self.prompt_view.set_right_margin(10)
-        self.prompt_view.set_size_request(-1, 110)
+        self.prompt_view.set_size_request(-1, 92)
         self.prompt_view.add_css_class("nyx-popup-input")
         prompt_box.append(self.prompt_view)
 
@@ -305,7 +307,8 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         prompt_controller.connect("key-pressed", self._on_prompt_key_pressed)
         self.prompt_view.add_controller(prompt_controller)
 
-        actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        actions.set_valign(Gtk.Align.END)
         composer.append(actions)
 
         self.voice_button = self._icon_button("audio-input-microphone-symbolic", self._on_voice_clicked)
@@ -322,7 +325,8 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
             xalign=0.0,
         )
         hint.add_css_class("nyx-hint")
-        main_box.append(hint)
+        hint.set_margin_top(8)
+        thread_pane.append(hint)
 
         window_controller = Gtk.EventControllerKey()
         window_controller.connect("key-pressed", self._on_window_key_pressed)

@@ -27,17 +27,17 @@ class ResolvedTheme:
 
 
 _DEFAULT_THEME = {
-    "text_primary": "#EEE8DB",
-    "text_muted": "#A5A69E",
-    "accent_cool": "#8BD8E0",
-    "accent_warm": "#C98E67",
-    "border_primary": "#7BBCC8",
-    "border_soft": "#B67F59",
-    "bg_outer": "#111518",
-    "bg_panel": "#22292B",
-    "bg_card": "#303434",
-    "bg_card_alt": "#262B2B",
-    "shadow_color": "#081014",
+    "text_primary": "#ECE6D7",
+    "text_muted": "#AAA99D",
+    "accent_cool": "#87BBB5",
+    "accent_warm": "#B47A56",
+    "border_primary": "#74A8A2",
+    "border_soft": "#A66F4E",
+    "bg_outer": "#121716",
+    "bg_panel": "#283230",
+    "bg_card": "#313A38",
+    "bg_card_alt": "#202827",
+    "shadow_color": "#060C0C",
 }
 
 
