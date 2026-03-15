@@ -16,7 +16,7 @@ from nyx.config import NyxConfig, load_config, load_config_text, render_config_t
 
 
 class NyxSettingsEditor(Gtk.Box):
-    """Editable settings surface with quick controls plus raw TOML editing."""
+    """Editable settings surface with Basic and Advanced tabs."""
 
     def __init__(
         self,
@@ -30,172 +30,256 @@ class NyxSettingsEditor(Gtk.Box):
         self.config = config
         self.logger = logger
         self.on_config_saved = on_config_saved
-        self.add_css_class("nyx-settings-pane")
         self._build_layout()
         self._populate_controls_from_config()
         self._load_editor_text()
 
     def _build_layout(self) -> None:
-        """Create the settings header, quick controls, and raw TOML editor."""
+        """Create the settings header, switcher, tabs, and save status."""
 
         heading_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.append(heading_box)
 
         title = Gtk.Label(label="Settings", xalign=0.0)
         title.add_css_class("nyx-section-title")
+        title.add_css_class("nyx-sidebar-title")
         heading_box.append(title)
 
         subtitle = Gtk.Label(
             label=(
-                "Most runtime settings apply immediately. Typography, monitor placement, and some "
-                "visual theme changes may need the overlay to be reopened for a full refresh."
+                "Basic settings apply the common options directly. Advanced mode exposes the raw TOML "
+                "for full provider arrays, fallback chains, and any lower-level overrides."
             ),
             xalign=0.0,
         )
         subtitle.set_wrap(True)
-        subtitle.add_css_class("nyx-settings-help")
+        subtitle.add_css_class("nyx-sidebar-copy")
         heading_box.append(subtitle)
 
-        self.quick_settings = Gtk.Grid(column_spacing=12, row_spacing=10)
-        self.quick_settings.add_css_class("nyx-settings-grid")
-        self.append(self.quick_settings)
+        switcher_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.append(switcher_row)
 
-        self.default_model_entry = self._labeled_entry("Default Provider", 0, 0)
-        self.overlay_monitor_entry = self._labeled_entry("Overlay Monitor", 1, 0)
-        self.hotkey_entry = self._labeled_entry("Summon Hotkey", 2, 0)
-        self.wallpaper_entry = self._labeled_entry("Wallpaper Path", 3, 0)
-        self.font_entry = self._labeled_entry("Font", 4, 0)
+        self.tab_stack = Gtk.Stack()
+        self.tab_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.tab_stack.set_hexpand(True)
+        self.tab_stack.set_vexpand(True)
 
-        self.theme_mode_entry = self._labeled_entry("Theme Mode", 0, 2)
-        self.searxng_entry = self._labeled_entry("SearXNG URL", 1, 2)
-        self.history_backend_entry = self._labeled_entry("History Backend", 2, 2)
-        self.blur_radius_entry = self._labeled_entry("Backdrop Blur", 3, 2)
-        self.dim_opacity_entry = self._labeled_entry("Backdrop Dim", 4, 2)
+        switcher = Gtk.StackSwitcher()
+        switcher.set_stack(self.tab_stack)
+        switcher.add_css_class("nyx-settings-switcher")
+        switcher_row.append(switcher)
 
-        self.voice_switch = self._labeled_switch("Voice Enabled", 5, 0)
-        self.backdrop_switch = self._labeled_switch("Backdrop Enabled", 5, 2)
-        self.yolo_switch = self._labeled_switch("YOLO", 6, 0)
-        self.confirm_switch = self._labeled_switch("Confirm Destructive", 6, 2)
-        self.auto_sort_switch = self._labeled_switch("Auto Sort Notes", 7, 0)
-
-        theme_title = Gtk.Label(label="Theme Overrides", xalign=0.0)
-        theme_title.add_css_class("nyx-section-title")
-        self.append(theme_title)
-
-        self.theme_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
-        self.theme_grid.add_css_class("nyx-settings-grid")
-        self.append(self.theme_grid)
-
-        self.theme_entries = {
-            "accent_cool": self._theme_entry("Accent Cool", 0),
-            "accent_warm": self._theme_entry("Accent Warm", 1),
-            "border_primary": self._theme_entry("Border Primary", 2),
-            "text_primary": self._theme_entry("Text Primary", 3),
-            "text_muted": self._theme_entry("Text Muted", 4),
-            "bg_panel": self._theme_entry("Panel Background", 5),
-            "bg_card": self._theme_entry("Card Background", 6),
-            "shadow_color": self._theme_entry("Shadow Color", 7),
-        }
-
-        hotkey_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        hotkey_box.add_css_class("nyx-inner-card-alt")
-        self.append(hotkey_box)
-
-        hotkey_title = Gtk.Label(label="Hyprland Setup", xalign=0.0)
-        hotkey_title.add_css_class("nyx-section-title")
-        hotkey_box.append(hotkey_title)
-
-        self.hotkey_snippet = Gtk.Label(xalign=0.0)
-        self.hotkey_snippet.set_wrap(True)
-        self.hotkey_snippet.set_selectable(True)
-        self.hotkey_snippet.add_css_class("nyx-metadata")
-        hotkey_box.append(self.hotkey_snippet)
-
-        button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.append(button_row)
-
-        apply_button = Gtk.Button(label="Apply Quick Settings")
-        apply_button.add_css_class("nyx-button-strong")
-        apply_button.connect("clicked", self._on_apply_quick_settings_clicked)
-        button_row.append(apply_button)
-
-        save_button = Gtk.Button(label="Save Config")
-        save_button.add_css_class("nyx-button-soft")
-        save_button.connect("clicked", self._on_save_clicked)
-        button_row.append(save_button)
-
-        reload_button = Gtk.Button(label="Reload From Disk")
-        reload_button.add_css_class("nyx-button-soft")
-        reload_button.connect("clicked", self._on_reload_clicked)
-        button_row.append(reload_button)
+        self.append(self.tab_stack)
 
         self.status_label = Gtk.Label(xalign=0.0)
         self.status_label.add_css_class("nyx-settings-status")
         self.append(self.status_label)
 
-        editor_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        editor_frame.add_css_class("nyx-inner-card")
-        self.append(editor_frame)
+        self._build_basic_page()
+        self._build_advanced_page()
 
-        editor_label = Gtk.Label(label="Advanced TOML Editor", xalign=0.0)
-        editor_label.add_css_class("nyx-section-title")
-        editor_frame.append(editor_label)
+    def _build_basic_page(self) -> None:
+        """Create the structured Basic settings page."""
+
+        basic_scroll = Gtk.ScrolledWindow()
+        basic_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        basic_scroll.set_vexpand(True)
+        self.tab_stack.add_titled(basic_scroll, "basic", "Basic")
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        content.set_margin_bottom(6)
+        basic_scroll.set_child(content)
+
+        appearance = self._section(
+            "Appearance",
+            "Tune the wallpaper-driven look, glass depth, and text contrast used by the sidebar.",
+        )
+        content.append(appearance)
+
+        self.wallpaper_entry = self._section_entry(appearance, "Wallpaper Path")
+        self.theme_mode_entry = self._section_entry(appearance, "Theme Mode")
+        self.font_entry = self._section_entry(appearance, "Font")
+        self.blur_radius_entry = self._section_entry(appearance, "Backdrop Blur")
+        self.dim_opacity_entry = self._section_entry(appearance, "Backdrop Dim")
+        self.backdrop_switch = self._section_switch(appearance, "Backdrop Enabled")
+
+        theme_section = self._section(
+            "Theme Overrides",
+            "These colors override the wallpaper-derived palette when set.",
+        )
+        content.append(theme_section)
+
+        theme_grid = Gtk.Grid(column_spacing=14, row_spacing=10)
+        theme_grid.add_css_class("nyx-settings-columns")
+        theme_section.append(theme_grid)
+
+        self.theme_entries = {
+            "text_primary": self._grid_entry(theme_grid, "Text Primary", 0, 0),
+            "text_muted": self._grid_entry(theme_grid, "Text Muted", 0, 2),
+            "accent_cool": self._grid_entry(theme_grid, "Accent Cool", 1, 0),
+            "accent_warm": self._grid_entry(theme_grid, "Accent Warm", 1, 2),
+            "border_primary": self._grid_entry(theme_grid, "Border Primary", 2, 0),
+            "border_soft": self._grid_entry(theme_grid, "Border Soft", 2, 2),
+            "bg_panel": self._grid_entry(theme_grid, "Panel Background", 3, 0),
+            "bg_card": self._grid_entry(theme_grid, "Card Background", 3, 2),
+            "shadow_color": self._grid_entry(theme_grid, "Shadow Color", 4, 0),
+        }
+
+        overlay = self._section(
+            "Overlay",
+            "Placement and startup integration for the launcher and panel.",
+        )
+        content.append(overlay)
+
+        self.overlay_monitor_entry = self._section_entry(overlay, "Overlay Monitor")
+        self.hotkey_entry = self._section_entry(overlay, "Summon Hotkey")
+
+        hyprland_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        hyprland_box.add_css_class("nyx-settings-codeblock")
+        overlay.append(hyprland_box)
+
+        snippet_title = Gtk.Label(label="Hyprland Setup", xalign=0.0)
+        snippet_title.add_css_class("nyx-settings-label")
+        hyprland_box.append(snippet_title)
+
+        self.hotkey_snippet = Gtk.Label(xalign=0.0)
+        self.hotkey_snippet.set_wrap(True)
+        self.hotkey_snippet.set_selectable(True)
+        self.hotkey_snippet.add_css_class("nyx-metadata")
+        hyprland_box.append(self.hotkey_snippet)
+
+        behavior = self._section(
+            "Behavior",
+            "Common runtime options used most often from the sidebar.",
+        )
+        content.append(behavior)
+
+        self.default_model_entry = self._section_entry(behavior, "Default Provider")
+        self.searxng_entry = self._section_entry(behavior, "SearXNG URL")
+        self.history_backend_entry = self._section_entry(behavior, "History Backend")
+        self.voice_switch = self._section_switch(behavior, "Voice Enabled")
+        self.yolo_switch = self._section_switch(behavior, "YOLO")
+        self.confirm_switch = self._section_switch(behavior, "Confirm Destructive")
+        self.auto_sort_switch = self._section_switch(behavior, "Auto Sort Notes")
+
+        basic_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        basic_actions.add_css_class("nyx-settings-actions")
+        content.append(basic_actions)
+
+        save_button = Gtk.Button(label="Save Settings")
+        save_button.add_css_class("nyx-button-strong")
+        save_button.connect("clicked", self._on_save_basic_clicked)
+        basic_actions.append(save_button)
+
+        reload_button = Gtk.Button(label="Reload From Disk")
+        reload_button.add_css_class("nyx-button-soft")
+        reload_button.connect("clicked", self._on_reload_clicked)
+        basic_actions.append(reload_button)
+
+    def _build_advanced_page(self) -> None:
+        """Create the Advanced TOML editor page."""
+
+        advanced_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        advanced_box.set_vexpand(True)
+        self.tab_stack.add_titled(advanced_box, "advanced", "Advanced")
 
         helper = Gtk.Label(
             label=(
-                "Use the advanced editor for full provider arrays, theme overrides, fallback chains, and any "
-                "new settings not represented by the quick controls."
+                "Use Advanced mode for full provider arrays, fallback chains, and any settings not surfaced "
+                "in the Basic tab."
             ),
             xalign=0.0,
         )
         helper.set_wrap(True)
         helper.add_css_class("nyx-settings-help")
-        editor_frame.append(helper)
+        advanced_box.append(helper)
 
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_vexpand(True)
-        editor_frame.append(scroll)
+        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        action_row.add_css_class("nyx-settings-actions")
+        advanced_box.append(action_row)
+
+        save_button = Gtk.Button(label="Save Advanced")
+        save_button.add_css_class("nyx-button-strong")
+        save_button.connect("clicked", self._on_save_advanced_clicked)
+        action_row.append(save_button)
+
+        reload_button = Gtk.Button(label="Reload From Disk")
+        reload_button.add_css_class("nyx-button-soft")
+        reload_button.connect("clicked", self._on_reload_clicked)
+        action_row.append(reload_button)
+
+        editor_scroll = Gtk.ScrolledWindow()
+        editor_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        editor_scroll.set_vexpand(True)
+        advanced_box.append(editor_scroll)
 
         self.editor_view = Gtk.TextView()
         self.editor_view.set_monospace(True)
         self.editor_view.set_wrap_mode(Gtk.WrapMode.NONE)
         self.editor_view.add_css_class("nyx-settings-text")
-        scroll.set_child(self.editor_view)
+        editor_scroll.set_child(self.editor_view)
 
-    def _labeled_entry(self, label_text: str, row: int, column: int) -> Gtk.Entry:
-        """Create one labeled text entry in the quick-settings grid."""
+    def _section(self, title: str, description: str) -> Gtk.Box:
+        """Create one styled settings section."""
+
+        section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        section.add_css_class("nyx-settings-section")
+
+        heading = Gtk.Label(label=title, xalign=0.0)
+        heading.add_css_class("nyx-section-title")
+        section.append(heading)
+
+        body = Gtk.Label(label=description, xalign=0.0)
+        body.set_wrap(True)
+        body.add_css_class("nyx-settings-help")
+        section.append(body)
+        return section
+
+    def _section_entry(self, section: Gtk.Box, label_text: str) -> Gtk.Entry:
+        """Append one labeled full-width entry row to a settings section."""
+
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        section.append(row)
 
         label = Gtk.Label(label=label_text, xalign=0.0)
         label.add_css_class("nyx-settings-label")
-        self.quick_settings.attach(label, column, row, 1, 1)
+        row.append(label)
+
         entry = Gtk.Entry()
-        self.quick_settings.attach(entry, column + 1, row, 1, 1)
+        entry.set_hexpand(True)
+        row.append(entry)
         return entry
 
-    def _labeled_switch(self, label_text: str, row: int, column: int) -> Gtk.Switch:
-        """Create one labeled switch in the quick-settings grid."""
+    def _section_switch(self, section: Gtk.Box, label_text: str) -> Gtk.Switch:
+        """Append one labeled toggle row to a settings section."""
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        section.append(row)
 
         label = Gtk.Label(label=label_text, xalign=0.0)
+        label.set_hexpand(True)
         label.add_css_class("nyx-settings-label")
-        self.quick_settings.attach(label, column, row, 1, 1)
+        row.append(label)
+
         toggle = Gtk.Switch()
-        toggle.set_halign(Gtk.Align.START)
-        self.quick_settings.attach(toggle, column + 1, row, 1, 1)
+        toggle.set_halign(Gtk.Align.END)
+        row.append(toggle)
         return toggle
 
-    def _theme_entry(self, label_text: str, row: int) -> Gtk.Entry:
-        """Create one labeled theme override entry."""
+    def _grid_entry(self, grid: Gtk.Grid, label_text: str, row: int, column: int) -> Gtk.Entry:
+        """Create one labeled theme entry inside a two-column grid."""
 
         label = Gtk.Label(label=label_text, xalign=0.0)
         label.add_css_class("nyx-settings-label")
-        self.theme_grid.attach(label, 0 if row < 4 else 2, row % 4, 1, 1)
+        grid.attach(label, column, row, 1, 1)
+
         entry = Gtk.Entry()
-        self.theme_grid.attach(entry, 1 if row < 4 else 3, row % 4, 1, 1)
+        entry.set_hexpand(True)
+        grid.attach(entry, column + 1, row, 1, 1)
         return entry
 
     def _populate_controls_from_config(self) -> None:
-        """Populate quick-setting widgets from the current config object."""
+        """Populate structured controls from the active config object."""
 
         self.default_model_entry.set_text(self.config.models.default)
         self.overlay_monitor_entry.set_text(self.config.ui.overlay_monitor)
@@ -212,8 +296,10 @@ class NyxSettingsEditor(Gtk.Box):
         self.yolo_switch.set_active(self.config.system.yolo)
         self.confirm_switch.set_active(self.config.system.confirm_destructive)
         self.auto_sort_switch.set_active(self.config.notes.auto_sort)
+
         for key, entry in self.theme_entries.items():
             entry.set_text(getattr(self.config.ui.theme, key))
+
         self.hotkey_snippet.set_label(
             "\n".join(
                 [
@@ -230,10 +316,9 @@ class NyxSettingsEditor(Gtk.Box):
 
         self.editor_view.get_buffer().set_text(load_config_text(self.config.config_path))
 
-    def _on_apply_quick_settings_clicked(self, button: Gtk.Button) -> None:
-        """Merge quick-setting widgets into a draft config and render TOML."""
+    def _build_basic_draft(self) -> NyxConfig:
+        """Materialize the Basic-tab widget values into a config draft."""
 
-        del button
         draft = copy.deepcopy(self.config)
         draft.models.default = self.default_model_entry.get_text().strip() or draft.models.default
         draft.ui.overlay_monitor = self.overlay_monitor_entry.get_text().strip() or draft.ui.overlay_monitor
@@ -248,21 +333,37 @@ class NyxSettingsEditor(Gtk.Box):
         draft.system.yolo = self.yolo_switch.get_active()
         draft.system.confirm_destructive = self.confirm_switch.get_active()
         draft.notes.auto_sort = self.auto_sort_switch.get_active()
-        draft.ui.backdrop_blur_radius = _safe_int(
-            self.blur_radius_entry.get_text(),
-            draft.ui.backdrop_blur_radius,
-        )
+        draft.ui.backdrop_blur_radius = _safe_int(self.blur_radius_entry.get_text(), draft.ui.backdrop_blur_radius)
         draft.ui.backdrop_dim_opacity = _safe_float(
             self.dim_opacity_entry.get_text(),
             draft.ui.backdrop_dim_opacity,
         )
         for key, entry in self.theme_entries.items():
             setattr(draft.ui.theme, key, entry.get_text().strip())
-        self.editor_view.get_buffer().set_text(render_config_toml(draft))
-        self.status_label.set_label("Quick settings copied into the TOML editor. Save to persist them.")
+        return draft
 
-    def _on_save_clicked(self, button: Gtk.Button) -> None:
-        """Validate and save the current TOML editor contents."""
+    def _on_save_basic_clicked(self, button: Gtk.Button) -> None:
+        """Validate and persist the Basic settings controls."""
+
+        del button
+        try:
+            rendered = render_config_toml(self._build_basic_draft())
+            new_config = save_config_text(rendered, self.config.config_path)
+        except Exception as exc:
+            self.logger.exception("Failed to save basic settings.")
+            self.status_label.set_label(f"Settings save failed: {exc}")
+            return
+
+        self.config = new_config
+        self._populate_controls_from_config()
+        self._load_editor_text()
+        self.status_label.set_label(
+            "Basic settings saved. Runtime changes apply immediately where possible; some visual changes may need reopening the overlay."
+        )
+        self.on_config_saved(new_config)
+
+    def _on_save_advanced_clicked(self, button: Gtk.Button) -> None:
+        """Validate and save the raw TOML editor contents."""
 
         del button
         buffer = self.editor_view.get_buffer()
@@ -272,20 +373,20 @@ class NyxSettingsEditor(Gtk.Box):
         try:
             new_config = save_config_text(config_text, self.config.config_path)
         except Exception as exc:
-            self.logger.exception("Failed to save config from settings editor.")
-            self.status_label.set_label(f"Config save failed: {exc}")
+            self.logger.exception("Failed to save config from advanced editor.")
+            self.status_label.set_label(f"Advanced save failed: {exc}")
             return
 
         self.config = new_config
         self._populate_controls_from_config()
         self._load_editor_text()
         self.status_label.set_label(
-            "Settings saved. Runtime changes apply immediately where possible; some visual changes may need reopening the overlay."
+            "Advanced settings saved. Runtime changes apply immediately where possible; some visual changes may need reopening the overlay."
         )
         self.on_config_saved(new_config)
 
     def _on_reload_clicked(self, button: Gtk.Button) -> None:
-        """Reload the config from disk, discarding editor changes."""
+        """Reload the config from disk and repopulate both tabs."""
 
         del button
         try:

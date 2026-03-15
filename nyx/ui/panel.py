@@ -46,7 +46,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         self.set_title("Nyx")
         self.set_default_size(
-            max(1240, self.config.ui.panel_width + 720),
+            max(1160, self.config.ui.panel_width + 760),
             max(720, self.config.ui.launcher_height + 380),
         )
         self.set_resizable(False)
@@ -81,7 +81,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.config = config
         self.theme = theme
         self.set_default_size(
-            max(1240, self.config.ui.panel_width + 720),
+            max(1160, self.config.ui.panel_width + 760),
             max(720, self.config.ui.launcher_height + 380),
         )
         self.queue_draw()
@@ -178,7 +178,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         rail.append(Gtk.Box(vexpand=True))
 
         left_stack_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        left_stack_box.set_size_request(max(260, self.config.ui.panel_width - 140), -1)
+        left_stack_box.set_size_request(max(300, self.config.ui.panel_width - 120), -1)
         stage.append(left_stack_box)
 
         self.sidebar_stack = Gtk.Stack()
@@ -221,16 +221,12 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         settings_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         settings_page.add_css_class("nyx-settings-pane")
-        settings_scroll = Gtk.ScrolledWindow()
-        settings_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        settings_scroll.set_vexpand(True)
-        settings_page.append(settings_scroll)
         self.settings_editor = NyxSettingsEditor(
             config=self.config,
             logger=self.logger,
             on_config_saved=self._on_config_saved,
         )
-        settings_scroll.set_child(self.settings_editor)
+        settings_page.append(self.settings_editor)
         self.sidebar_stack.add_titled(settings_page, "settings", "Settings")
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -246,9 +242,13 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.status_row.add_css_class("nyx-status-strip")
         thread_pane.append(self.status_row)
 
-        self.provider_label = Gtk.Label(xalign=0.0)
-        self.provider_label.set_hexpand(True)
+        self.provider_label = self._chip_label()
         self.status_row.append(self.provider_label)
+
+        self.status_meta_label = Gtk.Label(xalign=0.0)
+        self.status_meta_label.set_hexpand(True)
+        self.status_meta_label.add_css_class("nyx-status-meta")
+        self.status_row.append(self.status_meta_label)
 
         self.tokens_label = self._chip_label()
         self.status_row.append(self.tokens_label)
@@ -257,11 +257,16 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.degraded_label.set_visible(False)
         self.status_row.append(self.degraded_label)
 
-        self.window_label = self._chip_label()
+        self.window_label = Gtk.Label(xalign=1.0)
+        self.window_label.add_css_class("nyx-metadata")
         self.status_row.append(self.window_label)
 
-        copy_button = Gtk.Button(label="Copy")
-        copy_button.add_css_class("nyx-button-soft")
+        copy_button = Gtk.Button()
+        copy_button.add_css_class("nyx-icon-button")
+        copy_button.add_css_class("nyx-status-copy")
+        copy_button.set_child(Gtk.Image.new_from_icon_name("edit-copy-symbolic"))
+        copy_button.set_tooltip_text("Copy latest response")
+        _enable_instant_tooltip(copy_button)
         copy_button.connect("clicked", lambda button: self._copy_last_response())
         self.status_row.append(copy_button)
 
@@ -282,13 +287,10 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.response_view.add_css_class("nyx-thread-view")
         response_scroll.set_child(self.response_view)
 
-        composer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        composer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         composer.add_css_class("nyx-composer")
+        composer.add_css_class("nyx-composer-dock")
         thread_pane.append(composer)
-
-        prompt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        prompt_box.set_hexpand(True)
-        composer.append(prompt_box)
 
         self.prompt_view = Gtk.TextView()
         self.prompt_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -297,17 +299,29 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.prompt_view.set_bottom_margin(8)
         self.prompt_view.set_left_margin(10)
         self.prompt_view.set_right_margin(10)
-        self.prompt_view.set_size_request(-1, 92)
+        self.prompt_view.set_size_request(-1, 88)
         self.prompt_view.add_css_class("nyx-popup-input")
-        prompt_box.append(self.prompt_view)
+        composer.append(self.prompt_view)
 
         prompt_controller = Gtk.EventControllerKey()
         prompt_controller.connect("key-pressed", self._on_prompt_key_pressed)
         self.prompt_view.add_controller(prompt_controller)
 
-        actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        actions.set_valign(Gtk.Align.END)
-        composer.append(actions)
+        composer_footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        composer_footer.add_css_class("nyx-composer-footer")
+        composer.append(composer_footer)
+
+        hint = Gtk.Label(
+            label="Enter to send • Shift+Enter for newline • Esc to close",
+            xalign=0.0,
+        )
+        hint.set_hexpand(True)
+        hint.add_css_class("nyx-hint")
+        composer_footer.append(hint)
+
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        actions.set_halign(Gtk.Align.END)
+        composer_footer.append(actions)
 
         self.voice_button = self._icon_button(
             "audio-input-microphone-symbolic",
@@ -325,14 +339,6 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
             "Compact mode",
         )
         actions.append(compact_button)
-
-        hint = Gtk.Label(
-            label="Enter to send • Shift+Enter for newline • Esc to close",
-            xalign=0.0,
-        )
-        hint.add_css_class("nyx-hint")
-        hint.set_margin_top(8)
-        thread_pane.append(hint)
 
         window_controller = Gtk.EventControllerKey()
         window_controller.connect("key-pressed", self._on_window_key_pressed)
@@ -436,7 +442,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         delete_button = Gtk.Button()
         delete_button.add_css_class("nyx-history-delete")
         delete_button.set_valign(Gtk.Align.START)
-        delete_button.set_child(Gtk.Image.new_from_icon_name("user-trash-symbolic"))
+        delete_button.set_child(Gtk.Image.new_from_icon_name("edit-delete-symbolic"))
         delete_button.set_tooltip_text("Delete conversation")
         _enable_instant_tooltip(delete_button)
         delete_button.connect("clicked", self._on_delete_session_clicked, session.session_id)
@@ -468,15 +474,22 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         if state.model_name:
             provider_text += f"  {state.model_name}"
         self.provider_label.set_label(provider_text)
-        token_text = "—" if state.token_count is None else str(state.token_count)
-        self.tokens_label.set_label(f"tokens: {token_text}")
+        self.tokens_label.set_visible(state.token_count is not None)
+        if state.token_count is not None:
+            self.tokens_label.set_label(f"{state.token_count} tok")
         self.degraded_label.set_visible(state.degraded)
 
-        window_text = "current window"
+        self.status_meta_label.set_label("Conversation")
+
+        window_text = ""
         if state.active_window is not None and state.active_window.app_name:
             window_text = state.active_window.app_name
             self.window_label.set_tooltip_text(state.active_window.window_title or state.active_window.app_name)
+            self.status_meta_label.set_label(
+                state.active_window.window_title or f"Working in {state.active_window.app_name}"
+            )
         self.window_label.set_label(window_text)
+        self.window_label.set_visible(bool(window_text))
         render_markdown_to_buffer(self.response_view.get_buffer(), state.conversation_text)
         self._last_response_text = state.response_text
 

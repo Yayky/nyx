@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import fields
+import colorsys
 import hashlib
 import json
 import logging
@@ -112,16 +113,16 @@ def _extract_palette(image: Image.Image) -> dict[str, str]:
         return dict(_DEFAULT_THEME)
 
     avg = _average_color(pixels)
-    cool = _pick_by_hue(pixels, target="cool") or _DEFAULT_THEME["accent_cool"]
-    warm = _pick_by_hue(pixels, target="warm") or _DEFAULT_THEME["accent_warm"]
+    cool = _pick_by_hue(pixels, target="cool") or _mix(avg, _DEFAULT_THEME["accent_cool"], 0.58)
+    warm = _pick_by_hue(pixels, target="warm") or _mix(avg, _DEFAULT_THEME["accent_warm"], 0.62)
     bg_outer = _mix(avg, "#080B0D", 0.76)
-    bg_panel = _mix(avg, "#111619", 0.58)
-    bg_card = _mix(avg, "#1A2023", 0.44)
-    bg_card_alt = _mix(avg, "#101518", 0.50)
-    text_primary = _best_text_for(bg_outer)
-    text_muted = _mix(text_primary, bg_outer, 0.48)
-    border_primary = _mix(cool, "#D8F8FF", 0.24)
-    border_soft = _mix(warm, "#F0D2B7", 0.26)
+    bg_panel = _mix(avg, "#111619", 0.68)
+    bg_card = _mix(avg, "#1A2023", 0.58)
+    bg_card_alt = _mix(avg, "#101518", 0.62)
+    text_primary = _best_text_for(bg_panel)
+    text_muted = _mix(text_primary, bg_panel, 0.62)
+    border_primary = _mix(cool, "#D8F8FF", 0.34)
+    border_soft = _mix(warm, "#F0D2B7", 0.34)
     shadow_color = _mix(bg_outer, "#000000", 0.72)
     return {
         "text_primary": text_primary,
@@ -179,8 +180,9 @@ def _pick_by_hue(pixels: list[tuple[int, int, int]], *, target: str) -> str | No
         intensity = max(red, green, blue) / 255.0
         if intensity < 0.28:
             continue
+        _, saturation, _ = colorsys.rgb_to_hsv(red / 255.0, green / 255.0, blue / 255.0)
         score = _warm_score(red, green, blue) if target == "warm" else _cool_score(red, green, blue)
-        weighted = score * intensity
+        weighted = score * intensity * max(saturation, 0.18)
         if best is None or weighted > best[0]:
             best = (weighted, (red, green, blue))
     if best is None or best[0] <= 0.12:
