@@ -136,6 +136,9 @@ class NyxSettingsEditor(Gtk.Box):
         self.launcher_width_entry = self._section_entry(overlay, "Popup Width")
         self.launcher_height_entry = self._section_entry(overlay, "Popup Height")
         self.sidebar_width_entry = self._section_entry(overlay, "Sidebar Width")
+        self.sidebar_height_entry = self._section_entry(overlay, "Sidebar Height")
+        self.history_width_entry = self._section_entry(overlay, "History/Settings Width")
+        self.chat_width_entry = self._section_entry(overlay, "Chat Width")
 
         hyprland_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         hyprland_box.add_css_class("nyx-settings-codeblock")
@@ -290,6 +293,9 @@ class NyxSettingsEditor(Gtk.Box):
         self.launcher_width_entry.set_text(str(self.config.ui.launcher_width))
         self.launcher_height_entry.set_text(str(self.config.ui.launcher_height))
         self.sidebar_width_entry.set_text(str(self.config.ui.panel_width))
+        self.sidebar_height_entry.set_text(str(self.config.ui.panel_height))
+        self.history_width_entry.set_text(str(self.config.ui.panel_history_width))
+        self.chat_width_entry.set_text(str(self.config.ui.panel_chat_width))
         self.wallpaper_entry.set_text(self.config.ui.wallpaper_path)
         self.font_entry.set_text(self.config.ui.font)
         self.theme_mode_entry.set_text(self.config.ui.theme_mode)
@@ -332,6 +338,15 @@ class NyxSettingsEditor(Gtk.Box):
         draft.ui.launcher_width = _safe_int(self.launcher_width_entry.get_text(), draft.ui.launcher_width)
         draft.ui.launcher_height = _safe_int(self.launcher_height_entry.get_text(), draft.ui.launcher_height)
         draft.ui.panel_width = _safe_int(self.sidebar_width_entry.get_text(), draft.ui.panel_width)
+        draft.ui.panel_height = _safe_int(self.sidebar_height_entry.get_text(), draft.ui.panel_height)
+        draft.ui.panel_history_width = _safe_int(
+            self.history_width_entry.get_text(),
+            draft.ui.panel_history_width,
+        )
+        draft.ui.panel_chat_width = _safe_int(
+            self.chat_width_entry.get_text(),
+            draft.ui.panel_chat_width,
+        )
         draft.ui.wallpaper_path = self.wallpaper_entry.get_text().strip()
         draft.ui.font = self.font_entry.get_text().strip() or draft.ui.font
         draft.ui.theme_mode = self.theme_mode_entry.get_text().strip() or draft.ui.theme_mode

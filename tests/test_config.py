@@ -218,3 +218,31 @@ summon_hotkey = "Super+Space"
     assert saved.voice.enabled is False
     assert saved.ui.overlay_monitor == "2"
     assert saved.ui.summon_hotkey == "Super+Space"
+
+
+def test_ui_panel_geometry_settings_round_trip(tmp_path: Path) -> None:
+    """UI panel sizing settings should survive load-render-save cycles."""
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[ui]
+panel_width = 1180
+panel_height = 700
+panel_history_width = 290
+panel_chat_width = 810
+""".strip()
+    )
+
+    config = load_config(config_path)
+    assert config.ui.panel_width == 1180
+    assert config.ui.panel_height == 700
+    assert config.ui.panel_history_width == 290
+    assert config.ui.panel_chat_width == 810
+
+    rendered = render_config_toml(config)
+    saved = save_config_text(rendered, tmp_path / "saved.toml")
+    assert saved.ui.panel_width == 1180
+    assert saved.ui.panel_height == 700
+    assert saved.ui.panel_history_width == 290
+    assert saved.ui.panel_chat_width == 810

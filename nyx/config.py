@@ -46,6 +46,9 @@ _SECTION_KEYS: dict[str, set[str]] = {
         "launcher_width",
         "launcher_height",
         "panel_width",
+        "panel_height",
+        "panel_history_width",
+        "panel_chat_width",
         "font",
         "summon_hotkey",
         "theme_mode",
@@ -192,6 +195,9 @@ class UiConfig:
     launcher_width: int
     launcher_height: int
     panel_width: int
+    panel_height: int
+    panel_history_width: int
+    panel_chat_width: int
     font: str
     summon_hotkey: str
     theme_mode: str
@@ -429,6 +435,9 @@ def render_config_toml(config: NyxConfig) -> str:
                 f"launcher_width = {config.ui.launcher_width}",
                 f"launcher_height = {config.ui.launcher_height}",
                 f"panel_width = {config.ui.panel_width}",
+                f"panel_height = {config.ui.panel_height}",
+                f"panel_history_width = {config.ui.panel_history_width}",
+                f"panel_chat_width = {config.ui.panel_chat_width}",
                 f'font = "{_escape_string(config.ui.font)}"',
                 f'summon_hotkey = "{_escape_string(config.ui.summon_hotkey)}"',
                 f'theme_mode = "{_escape_string(config.ui.theme_mode)}"',
@@ -580,6 +589,9 @@ def _default_config_dict() -> dict[str, Any]:
             "launcher_width": 760,
             "launcher_height": 258,
             "panel_width": 1240,
+            "panel_height": 760,
+            "panel_history_width": 320,
+            "panel_chat_width": 900,
             "font": "monospace 12",
             "summon_hotkey": "Super+A",
             "theme_mode": "wallpaper",
@@ -774,6 +786,9 @@ def _build_config(data: dict[str, Any], config_path: Path) -> NyxConfig:
             launcher_width=data["ui"]["launcher_width"],
             launcher_height=data["ui"]["launcher_height"],
             panel_width=data["ui"]["panel_width"],
+            panel_height=data["ui"]["panel_height"],
+            panel_history_width=data["ui"]["panel_history_width"],
+            panel_chat_width=data["ui"]["panel_chat_width"],
             font=data["ui"]["font"],
             summon_hotkey=data["ui"]["summon_hotkey"],
             theme_mode=data["ui"]["theme_mode"],

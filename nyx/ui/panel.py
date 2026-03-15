@@ -351,21 +351,26 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.add_controller(window_controller)
 
     def _apply_panel_geometry(self) -> None:
-        """Apply a stable 75/25 layout for the sidebar window."""
+        """Apply the configured sidebar geometry using explicit inner-pane widths."""
 
-        total_width = max(1240, self.config.ui.panel_width)
-        total_height = max(720, self.config.ui.launcher_height + 380)
-        usable_width = total_width - self._OUTER_MARGIN - self._RAIL_WIDTH - self._INNER_SPACING
-        utility_width = max(280, int(usable_width * 0.25))
-        main_width = max(760, usable_width - utility_width)
+        shell_width = self._OUTER_MARGIN + self._RAIL_WIDTH + self._INNER_SPACING
+        requested_utility_width = max(260, self.config.ui.panel_history_width)
+        requested_main_width = max(640, self.config.ui.panel_chat_width)
+        requested_total_width = max(980, self.config.ui.panel_width)
+        computed_total_width = shell_width + requested_utility_width + requested_main_width
+        total_width = max(requested_total_width, computed_total_width)
+        total_height = max(640, self.config.ui.panel_height)
+        available_inner_width = total_width - shell_width
+        utility_width = min(requested_utility_width, max(260, available_inner_width - 640))
+        main_width = max(640, available_inner_width - utility_width)
 
         self.set_default_size(total_width, total_height)
         if hasattr(self, "stage"):
-            self.stage.set_size_request(total_width - self._OUTER_MARGIN, -1)
+            self.stage.set_size_request(total_width - self._OUTER_MARGIN, total_height - self._OUTER_MARGIN)
         if hasattr(self, "left_stack_box"):
-            self.left_stack_box.set_size_request(utility_width, -1)
+            self.left_stack_box.set_size_request(utility_width, total_height - self._OUTER_MARGIN)
         if hasattr(self, "main_box"):
-            self.main_box.set_size_request(main_width, -1)
+            self.main_box.set_size_request(main_width, total_height - self._OUTER_MARGIN)
 
     def _rail_button(self, icon_name: str, callback, tooltip: str) -> Gtk.Button:
         """Create one sidebar rail button with a symbolic icon."""
