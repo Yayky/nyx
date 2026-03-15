@@ -133,12 +133,12 @@ class NyxSettingsEditor(Gtk.Box):
 
         self.overlay_monitor_entry = self._section_entry(overlay, "Overlay Monitor")
         self.hotkey_entry = self._section_entry(overlay, "Summon Hotkey")
-        self.launcher_width_entry = self._section_entry(overlay, "Popup Width")
-        self.launcher_height_entry = self._section_entry(overlay, "Popup Height")
-        self.sidebar_width_entry = self._section_entry(overlay, "Sidebar Width")
-        self.sidebar_height_entry = self._section_entry(overlay, "Sidebar Height")
-        self.history_width_entry = self._section_entry(overlay, "History/Settings Width")
-        self.chat_width_entry = self._section_entry(overlay, "Chat Width")
+        self.launcher_width_entry = self._section_entry(overlay, "Popup Width (px)")
+        self.launcher_height_entry = self._section_entry(overlay, "Popup Height (px)")
+        self.sidebar_width_entry = self._section_entry(overlay, "Sidebar Width (px)")
+        self.sidebar_height_entry = self._section_entry(overlay, "Sidebar Height (px)")
+        self.history_width_entry = self._section_entry(overlay, "History/Settings Width (px)")
+        self.chat_width_entry = self._section_entry(overlay, "Chat Width (px)")
 
         hyprland_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         hyprland_box.add_css_class("nyx-settings-codeblock")

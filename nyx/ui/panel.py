@@ -27,6 +27,10 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
     _RAIL_WIDTH = 56
     _OUTER_MARGIN = 20
     _INNER_SPACING = 10
+    _MIN_PANEL_WIDTH = 560
+    _MIN_PANEL_HEIGHT = 420
+    _MIN_HISTORY_WIDTH = 160
+    _MIN_CHAT_WIDTH = 280
 
     def __init__(
         self,
@@ -354,15 +358,18 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         """Apply the configured sidebar geometry using explicit inner-pane widths."""
 
         shell_width = self._OUTER_MARGIN + self._RAIL_WIDTH + self._INNER_SPACING
-        requested_utility_width = max(260, self.config.ui.panel_history_width)
-        requested_main_width = max(640, self.config.ui.panel_chat_width)
-        requested_total_width = max(980, self.config.ui.panel_width)
+        requested_utility_width = max(self._MIN_HISTORY_WIDTH, self.config.ui.panel_history_width)
+        requested_main_width = max(self._MIN_CHAT_WIDTH, self.config.ui.panel_chat_width)
+        requested_total_width = max(self._MIN_PANEL_WIDTH, self.config.ui.panel_width)
         computed_total_width = shell_width + requested_utility_width + requested_main_width
         total_width = max(requested_total_width, computed_total_width)
-        total_height = max(640, self.config.ui.panel_height)
+        total_height = max(self._MIN_PANEL_HEIGHT, self.config.ui.panel_height)
         available_inner_width = total_width - shell_width
-        utility_width = min(requested_utility_width, max(260, available_inner_width - 640))
-        main_width = max(640, available_inner_width - utility_width)
+        utility_width = min(
+            requested_utility_width,
+            max(self._MIN_HISTORY_WIDTH, available_inner_width - self._MIN_CHAT_WIDTH),
+        )
+        main_width = max(self._MIN_CHAT_WIDTH, available_inner_width - utility_width)
 
         self.set_default_size(total_width, total_height)
         if hasattr(self, "stage"):
