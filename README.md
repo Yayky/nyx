@@ -24,6 +24,7 @@ one-shot CLI and a GTK overlay UI.
 - [Where Nyx Stores Things](#where-nyx-stores-things)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
+- [License](#license)
 - [Limitations](#limitations)
 
 ## What Nyx Is
@@ -69,8 +70,9 @@ Not done yet:
 
 License note:
 
-- there is currently no license file in the repo
-- until one is added, assume normal copyright applies
+- Nyx is source-available under `PolyForm-Noncommercial-1.0.0`
+- noncommercial use, modification, and redistribution are allowed under that license
+- commercial use requires a separate license from the author
 
 ## What Nyx Can Do
 
@@ -690,10 +692,22 @@ Current package metadata is in:
 
 - [pyproject.toml](pyproject.toml)
 
+## License
+
+Nyx is released under [PolyForm-Noncommercial-1.0.0](LICENSE).
+
+That means:
+
+- you can use, study, modify, and share Nyx for noncommercial purposes
+- you cannot use Nyx commercially under this repository license
+- commercial licensing stays with the author
+
+If you need commercial use, contact the project owner for separate terms.
+
 ## Limitations
 
 - Hyprland is the only implemented desktop bridge right now
 - the launcher depends on system GTK/PyGObject packages
 - Nyx is still alpha and the UI is still being actively refined
 - some integrations require external services that Nyx does not install for you
-- a public license has not been chosen yet
+- the repository license is source-available, not OSI open-source
