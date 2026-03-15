@@ -239,7 +239,7 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         button.connect("clicked", callback)
         return button
 
-    def _chip_label(self, text: str) -> Gtk.Label:
+    def _chip_label(self, text: str = "") -> Gtk.Label:
         """Create one rounded status-chip label."""
 
         label = Gtk.Label(label=text)
