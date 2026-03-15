@@ -11,8 +11,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Pango", "1.0")
+gi.require_version("GLib", "2.0")
 
-from gi.repository import Gdk, Gtk, Gtk4LayerShell, Pango
+from gi.repository import Gdk, GLib, Gtk, Gtk4LayerShell, Pango
 
 from nyx.config import (
     NyxConfig,
@@ -64,6 +65,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.theme = theme
         self._last_response_text = ""
         self._submission_task: asyncio.Task[None] | None = None
+        self._renaming_session_id: str | None = None
 
         self.set_title("Nyx")
         self.set_resizable(False)
@@ -481,6 +483,10 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
             row._session_id = session.session_id
             row.set_child(self._build_session_row(session))
             self.session_list.append(row)
+            if session.session_id == self._renaming_session_id:
+                rename_entry = getattr(row, "_rename_entry", None)
+                if rename_entry is not None:
+                    GLib.idle_add(self._focus_rename_entry, rename_entry)
 
     def _build_session_row(self, session: SessionRecord) -> Gtk.Widget:
         """Create the list-box row widget for one conversation."""
@@ -494,41 +500,76 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         content.add_css_class("nyx-history-row-main")
         shell.append(content)
 
-        title_label = Gtk.Label(label=session.title, xalign=0.0)
-        title_label.set_wrap(True)
-        title_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        title_label.set_lines(2)
-        title_label.set_max_width_chars(24)
-        title_label.add_css_class("nyx-history-title")
-        content.append(title_label)
+        if session.session_id == self._renaming_session_id:
+            rename_entry = Gtk.Entry()
+            rename_entry.set_text(session.title)
+            rename_entry.set_hexpand(True)
+            rename_entry.set_activates_default(False)
+            rename_entry.add_css_class("nyx-history-rename-entry")
+            rename_entry.connect("activate", self._on_rename_submit_activate, session.session_id)
+            content.append(rename_entry)
+            shell._rename_entry = rename_entry
 
-        subtitle_label = Gtk.Label(label=session.subtitle, xalign=0.0)
-        subtitle_label.set_wrap(True)
-        subtitle_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        subtitle_label.set_lines(2)
-        subtitle_label.set_max_width_chars(24)
-        subtitle_label.add_css_class("nyx-history-subtitle")
-        content.append(subtitle_label)
+            helper_label = Gtk.Label(
+                label="Rename this conversation and press Enter or the check button to save.",
+                xalign=0.0,
+            )
+            helper_label.set_wrap(True)
+            helper_label.add_css_class("nyx-history-subtitle")
+            content.append(helper_label)
+        else:
+            title_label = Gtk.Label(label=session.title, xalign=0.0)
+            title_label.set_wrap(True)
+            title_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            title_label.set_lines(2)
+            title_label.set_max_width_chars(24)
+            title_label.add_css_class("nyx-history-title")
+            content.append(title_label)
 
-        preview_label = Gtk.Label(label=session.preview, xalign=0.0)
-        preview_label.add_css_class("nyx-history-preview")
-        preview_label.set_wrap(True)
-        preview_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        preview_label.set_lines(3)
-        preview_label.set_max_width_chars(28)
-        content.append(preview_label)
+            subtitle_label = Gtk.Label(label=session.subtitle, xalign=0.0)
+            subtitle_label.set_wrap(True)
+            subtitle_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            subtitle_label.set_lines(2)
+            subtitle_label.set_max_width_chars(24)
+            subtitle_label.add_css_class("nyx-history-subtitle")
+            content.append(subtitle_label)
+
+            preview_label = Gtk.Label(label=session.preview, xalign=0.0)
+            preview_label.add_css_class("nyx-history-preview")
+            preview_label.set_wrap(True)
+            preview_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            preview_label.set_lines(3)
+            preview_label.set_max_width_chars(28)
+            content.append(preview_label)
 
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         actions.set_valign(Gtk.Align.START)
         shell.append(actions)
 
-        rename_button = Gtk.Button()
-        rename_button.add_css_class("nyx-history-delete")
-        rename_button.set_child(Gtk.Image.new_from_icon_name("document-edit-symbolic"))
-        rename_button.set_tooltip_text("Rename conversation")
-        _enable_instant_tooltip(rename_button)
-        rename_button.connect("clicked", self._on_rename_session_clicked, session.session_id)
-        actions.append(rename_button)
+        if session.session_id == self._renaming_session_id:
+            save_button = Gtk.Button()
+            save_button.add_css_class("nyx-history-delete")
+            save_button.set_child(Gtk.Image.new_from_icon_name("object-select-symbolic"))
+            save_button.set_tooltip_text("Save name")
+            _enable_instant_tooltip(save_button)
+            save_button.connect("clicked", self._on_rename_save_clicked, session.session_id)
+            actions.append(save_button)
+
+            cancel_button = Gtk.Button()
+            cancel_button.add_css_class("nyx-history-delete")
+            cancel_button.set_child(Gtk.Image.new_from_icon_name("window-close-symbolic"))
+            cancel_button.set_tooltip_text("Cancel rename")
+            _enable_instant_tooltip(cancel_button)
+            cancel_button.connect("clicked", self._on_rename_cancel_clicked, session.session_id)
+            actions.append(cancel_button)
+        else:
+            rename_button = Gtk.Button()
+            rename_button.add_css_class("nyx-history-delete")
+            rename_button.set_child(Gtk.Image.new_from_icon_name("document-edit-symbolic"))
+            rename_button.set_tooltip_text("Rename conversation")
+            _enable_instant_tooltip(rename_button)
+            rename_button.connect("clicked", self._on_rename_session_clicked, session.session_id)
+            actions.append(rename_button)
 
         delete_button = Gtk.Button()
         delete_button.add_css_class("nyx-history-delete")
@@ -683,6 +724,13 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
                 return
             child = child.get_next_sibling()
 
+    def _focus_rename_entry(self, entry: Gtk.Entry) -> bool:
+        """Focus and select the inline rename entry once the row is visible."""
+
+        entry.grab_focus()
+        entry.select_region(0, -1)
+        return False
+
     def _get_prompt_text(self) -> str:
         """Return the full prompt text from the input buffer."""
 
@@ -737,51 +785,64 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         """Delete one conversation directly from its row action."""
 
         del button
+        self._renaming_session_id = None
         state = self.controller.delete_session(session_id)
         self._rebuild_session_list()
         self._apply_state(state)
 
     def _on_rename_session_clicked(self, button: Gtk.Button, session_id: str) -> None:
-        """Open a small modal dialog to rename one conversation."""
+        """Switch one conversation row into inline rename mode."""
 
         del button
-        session = self.controller.get_session(session_id)
-        if session is None:
+        self._renaming_session_id = session_id
+        self._rebuild_session_list()
+        self._select_session_row(session_id)
+
+    def _on_rename_submit_activate(self, entry: Gtk.Entry, session_id: str) -> None:
+        """Save the inline rename when Enter is pressed."""
+
+        self._commit_rename_session(session_id, entry.get_text())
+
+    def _on_rename_save_clicked(self, button: Gtk.Button, session_id: str) -> None:
+        """Save the inline rename using the current row entry value."""
+
+        del button
+        row = self._find_session_row(session_id)
+        if row is None:
             return
+        entry = getattr(row, "_rename_entry", None)
+        if entry is None:
+            return
+        self._commit_rename_session(session_id, entry.get_text())
 
-        dialog = Gtk.Dialog(transient_for=self, modal=True)
-        dialog.set_title("Rename conversation")
-        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("_Rename", Gtk.ResponseType.OK)
-        dialog.set_default_response(Gtk.ResponseType.OK)
+    def _on_rename_cancel_clicked(self, button: Gtk.Button, session_id: str) -> None:
+        """Exit inline rename mode without persisting changes."""
 
-        content = dialog.get_content_area()
-        content.set_spacing(10)
+        del button, session_id
+        self._renaming_session_id = None
+        self._rebuild_session_list()
 
-        prompt = Gtk.Label(label="Choose a new name for this conversation.", xalign=0.0)
-        prompt.set_wrap(True)
-        content.append(prompt)
+    def _commit_rename_session(self, session_id: str, title: str) -> None:
+        """Persist an inline rename and refresh the visible history list."""
 
-        entry = Gtk.Entry()
-        entry.set_text(session.title)
-        entry.set_activates_default(True)
-        content.append(entry)
+        state = self.controller.rename_session(session_id, title)
+        self._renaming_session_id = None
+        if state is None:
+            self._rebuild_session_list()
+            return
+        self._rebuild_session_list()
+        self._apply_state(state)
+        self._select_session_row(session_id)
 
-        def _on_response(rename_dialog: Gtk.Dialog, response: int) -> None:
-            try:
-                if response == Gtk.ResponseType.OK:
-                    state = self.controller.rename_session(session_id, entry.get_text())
-                    if state is not None:
-                        self._rebuild_session_list()
-                        self._apply_state(state)
-                        self._select_session_row(session_id)
-            finally:
-                rename_dialog.destroy()
+    def _find_session_row(self, session_id: str) -> Gtk.ListBoxRow | None:
+        """Return the visible row for one conversation id, if present."""
 
-        dialog.connect("response", _on_response)
-        dialog.present()
-        entry.grab_focus()
-        entry.select_region(0, -1)
+        child = self.session_list.get_first_child()
+        while child is not None:
+            if getattr(child, "_session_id", None) == session_id:
+                return child
+            child = child.get_next_sibling()
+        return None
 
     def _on_config_saved(self, new_config: NyxConfig) -> None:
         """Refresh local config references after the settings editor saves."""
