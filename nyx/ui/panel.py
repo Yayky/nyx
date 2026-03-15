@@ -46,7 +46,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         self.set_title("Nyx")
         self.set_default_size(
-            max(1040, self.config.ui.panel_width + 560),
+            max(1160, self.config.ui.panel_width + 640),
             max(720, self.config.ui.launcher_height + 380),
         )
         self.set_resizable(False)
@@ -81,7 +81,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.config = config
         self.theme = theme
         self.set_default_size(
-            max(1040, self.config.ui.panel_width + 560),
+            max(1160, self.config.ui.panel_width + 640),
             max(720, self.config.ui.launcher_height + 380),
         )
         self.queue_draw()
@@ -151,18 +151,34 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         rail.add_css_class("nyx-rail")
         stage.append(rail)
 
-        self.history_button = self._rail_button("view-list-symbolic", self._on_history_clicked)
+        self.history_button = self._rail_button(
+            "view-list-symbolic",
+            self._on_history_clicked,
+            "Conversations",
+        )
         rail.append(self.history_button)
-        self.settings_button = self._rail_button("preferences-system-symbolic", self._on_settings_clicked)
+        self.settings_button = self._rail_button(
+            "preferences-system-symbolic",
+            self._on_settings_clicked,
+            "Settings",
+        )
         rail.append(self.settings_button)
-        self.new_button = self._rail_button("document-new-symbolic", self._on_new_conversation_clicked)
+        self.new_button = self._rail_button(
+            "document-new-symbolic",
+            self._on_new_conversation_clicked,
+            "New conversation",
+        )
         rail.append(self.new_button)
-        self.collapse_button = self._rail_button("view-restore-symbolic", self._on_compact_clicked)
+        self.collapse_button = self._rail_button(
+            "view-restore-symbolic",
+            self._on_compact_clicked,
+            "Compact mode",
+        )
         rail.append(self.collapse_button)
         rail.append(Gtk.Box(vexpand=True))
 
         left_stack_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        left_stack_box.set_size_request(self.config.ui.panel_width, -1)
+        left_stack_box.set_size_request(max(320, self.config.ui.panel_width - 80), -1)
         stage.append(left_stack_box)
 
         self.sidebar_stack = Gtk.Stack()
@@ -210,6 +226,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         history_page.append(sidebar_scroll)
 
         self.session_list = Gtk.ListBox()
+        self.session_list.add_css_class("nyx-session-list")
         self.session_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.session_list.connect("row-selected", self._on_row_selected)
         self.session_list.set_placeholder(Gtk.Label(label="No conversations yet."))
@@ -305,13 +322,21 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         actions.set_valign(Gtk.Align.END)
         composer.append(actions)
 
-        self.voice_button = self._icon_button("audio-input-microphone-symbolic", self._on_voice_clicked)
+        self.voice_button = self._icon_button(
+            "audio-input-microphone-symbolic",
+            self._on_voice_clicked,
+            "Voice input",
+        )
         actions.append(self.voice_button)
 
-        send_button = self._icon_button("mail-send-symbolic", self._on_send_clicked)
+        send_button = self._icon_button("mail-send-symbolic", self._on_send_clicked, "Send")
         actions.append(send_button)
 
-        compact_button = self._icon_button("view-restore-symbolic", self._on_compact_clicked)
+        compact_button = self._icon_button(
+            "view-restore-symbolic",
+            self._on_compact_clicked,
+            "Compact mode",
+        )
         actions.append(compact_button)
 
         hint = Gtk.Label(
@@ -326,20 +351,22 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         window_controller.connect("key-pressed", self._on_window_key_pressed)
         self.add_controller(window_controller)
 
-    def _rail_button(self, icon_name: str, callback) -> Gtk.Button:
+    def _rail_button(self, icon_name: str, callback, tooltip: str) -> Gtk.Button:
         """Create one sidebar rail button with a symbolic icon."""
 
         button = Gtk.Button()
         button.set_child(Gtk.Image.new_from_icon_name(icon_name))
+        button.set_tooltip_text(tooltip)
         button.connect("clicked", callback)
         return button
 
-    def _icon_button(self, icon_name: str, callback) -> Gtk.Button:
+    def _icon_button(self, icon_name: str, callback, tooltip: str) -> Gtk.Button:
         """Create one icon-only action button."""
 
         button = Gtk.Button()
         button.add_css_class("nyx-icon-button")
         button.set_child(Gtk.Image.new_from_icon_name(icon_name))
+        button.set_tooltip_text(tooltip)
         button.connect("clicked", callback)
         return button
 

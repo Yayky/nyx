@@ -23,7 +23,7 @@ from nyx.control import NyxControlError, send_control_command
 from nyx.daemon import NyxDaemon
 from nyx.ui.monitors import MonitorSelectionState, resolve_overlay_monitor
 from nyx.ui.panel import NyxPanelWindow
-from nyx.ui.rendering import render_markdown_to_buffer
+from nyx.ui.rendering import configure_markdown_theme, render_markdown_to_buffer
 from nyx.ui.session import OverlaySessionController, OverlayViewState
 from nyx.ui.styles import install_ui_css
 from nyx.ui.theme import ResolvedTheme, resolve_theme
@@ -180,10 +180,18 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         action_row.set_halign(Gtk.Align.CENTER)
         stage.append(action_row)
 
-        self.voice_button = self._icon_button("audio-input-microphone-symbolic", self._on_voice_clicked)
+        self.voice_button = self._icon_button(
+            "audio-input-microphone-symbolic",
+            self._on_voice_clicked,
+            "Voice input",
+        )
         action_row.append(self.voice_button)
 
-        popout_button = self._icon_button("view-right-pane-symbolic", self._on_popout_clicked)
+        popout_button = self._icon_button(
+            "view-right-pane-symbolic",
+            self._on_popout_clicked,
+            "Open sidebar",
+        )
         action_row.append(popout_button)
 
         input_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -216,12 +224,13 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         window_controller.connect("key-pressed", self._on_window_key_pressed)
         self.add_controller(window_controller)
 
-    def _icon_button(self, icon_name: str, callback) -> Gtk.Button:
+    def _icon_button(self, icon_name: str, callback, tooltip: str) -> Gtk.Button:
         """Create one icon-only action button."""
 
         button = Gtk.Button()
         button.add_css_class("nyx-icon-button")
         button.set_child(Gtk.Image.new_from_icon_name(icon_name))
+        button.set_tooltip_text(tooltip)
         button.connect("clicked", callback)
         return button
 
@@ -400,6 +409,7 @@ class NyxLauncherApplication(Gtk.Application):
         self._auto_close_scheduled = False
         self.theme = resolve_theme(config, logger)
         install_ui_css(self.theme, self.config.ui.font)
+        self._install_markdown_theme()
         self.controller = OverlaySessionController(
             daemon=daemon,
             bridge=bridge,
@@ -437,6 +447,7 @@ class NyxLauncherApplication(Gtk.Application):
         self.controller.bridge = self.bridge
         self.theme = resolve_theme(new_config, self.logger)
         install_ui_css(self.theme, self.config.ui.font)
+        self._install_markdown_theme()
         if self.launcher_window is not None:
             self.launcher_window.refresh_visuals(new_config, self.theme)
         if self.panel_window is not None:
@@ -524,6 +535,15 @@ class NyxLauncherApplication(Gtk.Application):
         if self._voice_temp_dir is not None:
             self._voice_temp_dir.cleanup()
             self._voice_temp_dir = None
+
+    def _install_markdown_theme(self) -> None:
+        """Apply theme-aware markdown colors for conversation rendering."""
+
+        configure_markdown_theme(
+            heading=self.theme.colors["accent_cool"],
+            inline_code=self.theme.colors["accent_warm"],
+            code_keyword=self.theme.colors["border_primary"],
+        )
 
     def _on_activate(self, app: Gtk.Application) -> None:
         """Create or re-present the correct overlay window on activation."""

@@ -32,18 +32,25 @@ window {
 }
 
 .nyx-stage-compact {
-  padding: 10px 12px 12px 12px;
+  background: transparent;
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
 }
 
 .nyx-stage-panel {
+  background: alpha(__BG_OUTER__, 0.22);
+  border-color: alpha(__BORDER_PRIMARY__, 0.22);
+  box-shadow: 0 20px 72px alpha(__SHADOW_COLOR__, 0.42);
   padding: 10px;
 }
 
 .nyx-history-pane,
 .nyx-settings-pane,
 .nyx-thread-pane {
-  background: alpha(__BG_PANEL__, 0.70);
-  border: 1px solid alpha(__BORDER_PRIMARY__, 0.30);
+  background: alpha(__BG_PANEL__, 0.34);
+  border: 1px solid alpha(__BORDER_PRIMARY__, 0.24);
   border-radius: 18px;
 }
 
@@ -64,7 +71,7 @@ window {
 
 .nyx-popup-card,
 .nyx-popup-composer {
-  background: alpha(__BG_PANEL__, 0.52);
+  background: alpha(__BG_PANEL__, 0.44);
   border-radius: 16px;
   padding: 8px 10px;
 }
@@ -86,8 +93,10 @@ window {
 
 .nyx-popup-response,
 .nyx-popup-input,
+.nyx-thread-view,
 .nyx-thread-view text,
-.nyx-settings-text {
+.nyx-settings-text,
+.nyx-settings-text text {
   background: transparent;
   color: __TEXT_PRIMARY__;
 }
@@ -105,6 +114,25 @@ window {
 
 .nyx-popup-input {
   min-height: 44px;
+}
+
+.nyx-popup-input,
+.nyx-thread-view,
+.nyx-settings-text,
+entry,
+searchentry > text,
+searchentry > image {
+  color: __TEXT_PRIMARY__;
+}
+
+.nyx-popup-input,
+.nyx-thread-view,
+.nyx-settings-text,
+entry,
+searchentry {
+  background: alpha(__BG_CARD_ALT__, 0.24);
+  border: 1px solid alpha(__BORDER_PRIMARY__, 0.18);
+  border-radius: 14px;
 }
 
 .nyx-thread-view text {
@@ -175,6 +203,20 @@ list row:selected .nyx-history-row {
   color: alpha(__TEXT_PRIMARY__, 0.9);
 }
 
+.nyx-session-list,
+.nyx-session-list row,
+scrolledwindow,
+viewport {
+  background: transparent;
+}
+
+.nyx-history-pane label,
+.nyx-thread-pane label,
+.nyx-settings-pane label,
+.nyx-settings-pane text {
+  color: __TEXT_PRIMARY__;
+}
+
 .nyx-section-title {
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -232,7 +274,7 @@ list row:selected .nyx-history-row {
 }
 
 .nyx-thread-pane .nyx-popup-input {
-  background: alpha(__BG_CARD_ALT__, 0.22);
+  background: alpha(__BG_CARD_ALT__, 0.18);
   border-radius: 14px;
 }
 """
