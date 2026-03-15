@@ -24,6 +24,10 @@ from nyx.ui.theme import ResolvedTheme
 class NyxPanelWindow(Gtk.ApplicationWindow):
     """Left-anchored GTK4 history/settings panel."""
 
+    _RAIL_WIDTH = 56
+    _OUTER_MARGIN = 20
+    _INNER_SPACING = 10
+
     def __init__(
         self,
         application: Gtk.Application,
@@ -45,16 +49,13 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self._submission_task: asyncio.Task[None] | None = None
 
         self.set_title("Nyx")
-        self.set_default_size(
-            max(1160, self.config.ui.panel_width + 760),
-            max(720, self.config.ui.launcher_height + 380),
-        )
         self.set_resizable(False)
         self.set_decorated(False)
         self.add_css_class("nyx-window")
 
         self._configure_layer_shell()
         self._build_layout()
+        self._apply_panel_geometry()
         self.refresh_from_controller()
 
     def refresh_from_controller(self, page_name: str = "history") -> None:
@@ -80,10 +81,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         self.config = config
         self.theme = theme
-        self.set_default_size(
-            max(1160, self.config.ui.panel_width + 760),
-            max(720, self.config.ui.launcher_height + 380),
-        )
+        self._apply_panel_geometry()
         self.queue_draw()
         self.settings_editor.config = config
         self.settings_editor._populate_controls_from_config()
@@ -146,10 +144,13 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         stage.add_css_class("nyx-stage")
         stage.add_css_class("nyx-stage-panel")
         self.set_child(stage)
+        self.stage = stage
 
         rail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         rail.add_css_class("nyx-rail")
         stage.append(rail)
+        rail.set_size_request(self._RAIL_WIDTH, -1)
+        self.rail = rail
 
         self.history_button = self._rail_button(
             "view-list-symbolic",
@@ -178,8 +179,8 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         rail.append(Gtk.Box(vexpand=True))
 
         left_stack_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        left_stack_box.set_size_request(max(300, self.config.ui.panel_width - 120), -1)
         stage.append(left_stack_box)
+        self.left_stack_box = left_stack_box
 
         self.sidebar_stack = Gtk.Stack()
         self.sidebar_stack.set_vexpand(True)
@@ -221,17 +222,22 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         settings_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         settings_page.add_css_class("nyx-settings-pane")
+        settings_scroll = Gtk.ScrolledWindow()
+        settings_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        settings_scroll.set_vexpand(True)
         self.settings_editor = NyxSettingsEditor(
             config=self.config,
             logger=self.logger,
             on_config_saved=self._on_config_saved,
         )
-        settings_page.append(self.settings_editor)
+        settings_scroll.set_child(self.settings_editor)
+        settings_page.append(settings_scroll)
         self.sidebar_stack.add_titled(settings_page, "settings", "Settings")
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         main_box.set_hexpand(True)
         stage.append(main_box)
+        self.main_box = main_box
 
         thread_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         thread_pane.add_css_class("nyx-thread-pane")
@@ -343,6 +349,23 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         window_controller = Gtk.EventControllerKey()
         window_controller.connect("key-pressed", self._on_window_key_pressed)
         self.add_controller(window_controller)
+
+    def _apply_panel_geometry(self) -> None:
+        """Apply a stable 75/25 layout for the sidebar window."""
+
+        total_width = max(1240, self.config.ui.panel_width)
+        total_height = max(720, self.config.ui.launcher_height + 380)
+        usable_width = total_width - self._OUTER_MARGIN - self._RAIL_WIDTH - self._INNER_SPACING
+        utility_width = max(280, int(usable_width * 0.25))
+        main_width = max(760, usable_width - utility_width)
+
+        self.set_default_size(total_width, total_height)
+        if hasattr(self, "stage"):
+            self.stage.set_size_request(total_width - self._OUTER_MARGIN, -1)
+        if hasattr(self, "left_stack_box"):
+            self.left_stack_box.set_size_request(utility_width, -1)
+        if hasattr(self, "main_box"):
+            self.main_box.set_size_request(main_width, -1)
 
     def _rail_button(self, icon_name: str, callback, tooltip: str) -> Gtk.Button:
         """Create one sidebar rail button with a symbolic icon."""

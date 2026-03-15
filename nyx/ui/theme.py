@@ -113,7 +113,10 @@ def _extract_palette(image: Image.Image) -> dict[str, str]:
         return dict(_DEFAULT_THEME)
 
     avg = _average_color(pixels)
-    cool = _pick_by_hue(pixels, target="cool") or _mix(avg, _DEFAULT_THEME["accent_cool"], 0.58)
+    highlight = _pick_highlight(pixels)
+    cool = _pick_by_hue(pixels, target="cool")
+    if cool is None or _brightness(cool) < 150:
+        cool = highlight or _mix(avg, _DEFAULT_THEME["accent_cool"], 0.58)
     warm = _pick_by_hue(pixels, target="warm") or _mix(avg, _DEFAULT_THEME["accent_warm"], 0.62)
     bg_outer = _mix(avg, "#080B0D", 0.76)
     bg_panel = _mix(avg, "#111619", 0.68)
@@ -190,6 +193,25 @@ def _pick_by_hue(pixels: list[tuple[int, int, int]], *, target: str) -> str | No
     return _to_hex(best[1])
 
 
+def _pick_highlight(pixels: list[tuple[int, int, int]]) -> str | None:
+    """Pick a bright readable highlight from warm or pale wallpaper details."""
+
+    best: tuple[float, tuple[int, int, int]] | None = None
+    for red, green, blue in pixels:
+        intensity = max(red, green, blue) / 255.0
+        if intensity < 0.55:
+            continue
+        _, saturation, value = colorsys.rgb_to_hsv(red / 255.0, green / 255.0, blue / 255.0)
+        warmth = _warm_score(red, green, blue)
+        lightness = value * 0.8 + intensity * 0.2
+        weighted = (warmth + 0.15) * max(saturation, 0.12) * lightness
+        if best is None or weighted > best[0]:
+            best = (weighted, (red, green, blue))
+    if best is None:
+        return None
+    return _to_hex(best[1])
+
+
 def _warm_score(red: int, green: int, blue: int) -> float:
     """Return a simple warm-color preference score."""
 
@@ -208,6 +230,13 @@ def _best_text_for(background_hex: str) -> str:
     red, green, blue = _from_hex(background_hex)
     luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
     return "#EEE8DB" if luminance < 160 else "#171A1D"
+
+
+def _brightness(color_hex: str) -> float:
+    """Return the luminance-like brightness for a hex color."""
+
+    red, green, blue = _from_hex(color_hex)
+    return (0.299 * red) + (0.587 * green) + (0.114 * blue)
 
 
 def _mix(foreground_hex: str, background_hex: str, foreground_weight: float) -> str:

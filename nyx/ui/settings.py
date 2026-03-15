@@ -133,6 +133,9 @@ class NyxSettingsEditor(Gtk.Box):
 
         self.overlay_monitor_entry = self._section_entry(overlay, "Overlay Monitor")
         self.hotkey_entry = self._section_entry(overlay, "Summon Hotkey")
+        self.launcher_width_entry = self._section_entry(overlay, "Popup Width")
+        self.launcher_height_entry = self._section_entry(overlay, "Popup Height")
+        self.sidebar_width_entry = self._section_entry(overlay, "Sidebar Width")
 
         hyprland_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         hyprland_box.add_css_class("nyx-settings-codeblock")
@@ -284,6 +287,9 @@ class NyxSettingsEditor(Gtk.Box):
         self.default_model_entry.set_text(self.config.models.default)
         self.overlay_monitor_entry.set_text(self.config.ui.overlay_monitor)
         self.hotkey_entry.set_text(self.config.ui.summon_hotkey)
+        self.launcher_width_entry.set_text(str(self.config.ui.launcher_width))
+        self.launcher_height_entry.set_text(str(self.config.ui.launcher_height))
+        self.sidebar_width_entry.set_text(str(self.config.ui.panel_width))
         self.wallpaper_entry.set_text(self.config.ui.wallpaper_path)
         self.font_entry.set_text(self.config.ui.font)
         self.theme_mode_entry.set_text(self.config.ui.theme_mode)
@@ -323,6 +329,9 @@ class NyxSettingsEditor(Gtk.Box):
         draft.models.default = self.default_model_entry.get_text().strip() or draft.models.default
         draft.ui.overlay_monitor = self.overlay_monitor_entry.get_text().strip() or draft.ui.overlay_monitor
         draft.ui.summon_hotkey = self.hotkey_entry.get_text().strip() or draft.ui.summon_hotkey
+        draft.ui.launcher_width = _safe_int(self.launcher_width_entry.get_text(), draft.ui.launcher_width)
+        draft.ui.launcher_height = _safe_int(self.launcher_height_entry.get_text(), draft.ui.launcher_height)
+        draft.ui.panel_width = _safe_int(self.sidebar_width_entry.get_text(), draft.ui.panel_width)
         draft.ui.wallpaper_path = self.wallpaper_entry.get_text().strip()
         draft.ui.font = self.font_entry.get_text().strip() or draft.ui.font
         draft.ui.theme_mode = self.theme_mode_entry.get_text().strip() or draft.ui.theme_mode
