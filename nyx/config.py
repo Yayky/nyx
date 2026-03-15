@@ -15,6 +15,14 @@ import copy
 import tomllib
 
 DEFAULT_CONFIG_PATH = Path("~/.config/nyx/config.toml").expanduser()
+UI_PANEL_RAIL_WIDTH = 56
+UI_PANEL_OUTER_MARGIN = 20
+UI_PANEL_INNER_SPACING = 10
+UI_MIN_HISTORY_WIDTH = 140
+UI_MIN_CHAT_WIDTH = 240
+UI_MIN_PANEL_HEIGHT = 420
+UI_MIN_CONVERSATION_HEIGHT = 180
+UI_MIN_COMPOSER_HEIGHT = 96
 
 _SECTION_KEYS: dict[str, set[str]] = {
     "models": {"default", "fallback", "providers"},
@@ -49,6 +57,7 @@ _SECTION_KEYS: dict[str, set[str]] = {
         "panel_height",
         "panel_history_width",
         "panel_chat_width",
+        "panel_conversation_ratio",
         "font",
         "summon_hotkey",
         "theme_mode",
@@ -198,6 +207,7 @@ class UiConfig:
     panel_height: int
     panel_history_width: int
     panel_chat_width: int
+    panel_conversation_ratio: float
     font: str
     summon_hotkey: str
     theme_mode: str
@@ -343,6 +353,11 @@ def render_config_toml(config: NyxConfig) -> str:
     writing libraries.
     """
 
+    rendered_panel_width = compute_panel_total_width(
+        config.ui.panel_history_width,
+        config.ui.panel_chat_width,
+    )
+
     models_section = "\n".join(
         [
             "[models]",
@@ -434,10 +449,11 @@ def render_config_toml(config: NyxConfig) -> str:
                 f'overlay_monitor = "{_escape_string(config.ui.overlay_monitor)}"',
                 f"launcher_width = {config.ui.launcher_width}",
                 f"launcher_height = {config.ui.launcher_height}",
-                f"panel_width = {config.ui.panel_width}",
+                f"panel_width = {rendered_panel_width}",
                 f"panel_height = {config.ui.panel_height}",
                 f"panel_history_width = {config.ui.panel_history_width}",
                 f"panel_chat_width = {config.ui.panel_chat_width}",
+                f"panel_conversation_ratio = {config.ui.panel_conversation_ratio}",
                 f'font = "{_escape_string(config.ui.font)}"',
                 f'summon_hotkey = "{_escape_string(config.ui.summon_hotkey)}"',
                 f'theme_mode = "{_escape_string(config.ui.theme_mode)}"',
@@ -588,10 +604,11 @@ def _default_config_dict() -> dict[str, Any]:
             "overlay_monitor": "focused",
             "launcher_width": 760,
             "launcher_height": 258,
-            "panel_width": 1240,
+            "panel_width": compute_panel_total_width(320, 900),
             "panel_height": 760,
             "panel_history_width": 320,
             "panel_chat_width": 900,
+            "panel_conversation_ratio": 0.76,
             "font": "monospace 12",
             "summon_hotkey": "Super+A",
             "theme_mode": "wallpaper",
@@ -789,6 +806,7 @@ def _build_config(data: dict[str, Any], config_path: Path) -> NyxConfig:
             panel_height=data["ui"]["panel_height"],
             panel_history_width=data["ui"]["panel_history_width"],
             panel_chat_width=data["ui"]["panel_chat_width"],
+            panel_conversation_ratio=data["ui"]["panel_conversation_ratio"],
             font=data["ui"]["font"],
             summon_hotkey=data["ui"]["summon_hotkey"],
             theme_mode=data["ui"]["theme_mode"],
@@ -820,6 +838,18 @@ def _expand_path_value(key: str, value: Any) -> Any:
     if key.endswith("_path") and isinstance(value, str):
         return _expand_path(value)
     return value
+
+
+def compute_panel_total_width(history_width: int, chat_width: int) -> int:
+    """Return the deterministic total width derived from the inner panel widths."""
+
+    return (
+        UI_PANEL_OUTER_MARGIN
+        + UI_PANEL_RAIL_WIDTH
+        + UI_PANEL_INNER_SPACING
+        + max(UI_MIN_HISTORY_WIDTH, history_width)
+        + max(UI_MIN_CHAT_WIDTH, chat_width)
+    )
 
 
 def _render_provider(provider: ProviderConfig) -> str:

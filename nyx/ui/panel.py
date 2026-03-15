@@ -10,10 +10,22 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 gi.require_version("Gdk", "4.0")
+gi.require_version("Pango", "1.0")
 
-from gi.repository import Gdk, Gtk, Gtk4LayerShell
+from gi.repository import Gdk, Gtk, Gtk4LayerShell, Pango
 
-from nyx.config import NyxConfig
+from nyx.config import (
+    NyxConfig,
+    UI_MIN_CHAT_WIDTH,
+    UI_MIN_COMPOSER_HEIGHT,
+    UI_MIN_CONVERSATION_HEIGHT,
+    UI_MIN_HISTORY_WIDTH,
+    UI_MIN_PANEL_HEIGHT,
+    UI_PANEL_INNER_SPACING,
+    UI_PANEL_OUTER_MARGIN,
+    UI_PANEL_RAIL_WIDTH,
+    compute_panel_total_width,
+)
 from nyx.ui.monitors import MonitorSelectionState, resolve_overlay_monitor
 from nyx.ui.rendering import render_markdown_to_buffer
 from nyx.ui.session import OverlaySessionController, OverlayViewState, SessionRecord
@@ -24,13 +36,14 @@ from nyx.ui.theme import ResolvedTheme
 class NyxPanelWindow(Gtk.ApplicationWindow):
     """Left-anchored GTK4 history/settings panel."""
 
-    _RAIL_WIDTH = 56
-    _OUTER_MARGIN = 20
-    _INNER_SPACING = 10
-    _MIN_PANEL_WIDTH = 560
-    _MIN_PANEL_HEIGHT = 420
-    _MIN_HISTORY_WIDTH = 160
-    _MIN_CHAT_WIDTH = 280
+    _RAIL_WIDTH = UI_PANEL_RAIL_WIDTH
+    _OUTER_MARGIN = UI_PANEL_OUTER_MARGIN
+    _INNER_SPACING = UI_PANEL_INNER_SPACING
+    _MIN_PANEL_HEIGHT = UI_MIN_PANEL_HEIGHT
+    _MIN_HISTORY_WIDTH = UI_MIN_HISTORY_WIDTH
+    _MIN_CHAT_WIDTH = UI_MIN_CHAT_WIDTH
+    _STATUS_STRIP_HEIGHT = 44
+    _THREAD_VERTICAL_CHROME = 92
 
     def __init__(
         self,
@@ -257,6 +270,10 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         self.status_meta_label = Gtk.Label(xalign=0.0)
         self.status_meta_label.set_hexpand(True)
+        self.status_meta_label.set_wrap(True)
+        self.status_meta_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        self.status_meta_label.set_lines(2)
+        self.status_meta_label.set_max_width_chars(36)
         self.status_meta_label.add_css_class("nyx-status-meta")
         self.status_row.append(self.status_meta_label)
 
@@ -268,6 +285,10 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.status_row.append(self.degraded_label)
 
         self.window_label = Gtk.Label(xalign=1.0)
+        self.window_label.set_wrap(True)
+        self.window_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        self.window_label.set_lines(2)
+        self.window_label.set_max_width_chars(18)
         self.window_label.add_css_class("nyx-metadata")
         self.status_row.append(self.window_label)
 
@@ -282,8 +303,9 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         response_scroll = Gtk.ScrolledWindow()
         response_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        response_scroll.set_vexpand(True)
+        response_scroll.set_vexpand(False)
         thread_pane.append(response_scroll)
+        self.response_scroll = response_scroll
 
         self.response_view = Gtk.TextView()
         self.response_view.set_editable(False)
@@ -301,6 +323,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         composer.add_css_class("nyx-composer")
         composer.add_css_class("nyx-composer-dock")
         thread_pane.append(composer)
+        self.composer = composer
 
         self.prompt_view = Gtk.TextView()
         self.prompt_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -357,19 +380,26 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
     def _apply_panel_geometry(self) -> None:
         """Apply the configured sidebar geometry using explicit inner-pane widths."""
 
-        shell_width = self._OUTER_MARGIN + self._RAIL_WIDTH + self._INNER_SPACING
         requested_utility_width = max(self._MIN_HISTORY_WIDTH, self.config.ui.panel_history_width)
         requested_main_width = max(self._MIN_CHAT_WIDTH, self.config.ui.panel_chat_width)
-        requested_total_width = max(self._MIN_PANEL_WIDTH, self.config.ui.panel_width)
-        computed_total_width = shell_width + requested_utility_width + requested_main_width
-        total_width = max(requested_total_width, computed_total_width)
+        total_width = compute_panel_total_width(requested_utility_width, requested_main_width)
         total_height = max(self._MIN_PANEL_HEIGHT, self.config.ui.panel_height)
-        available_inner_width = total_width - shell_width
-        utility_width = min(
-            requested_utility_width,
-            max(self._MIN_HISTORY_WIDTH, available_inner_width - self._MIN_CHAT_WIDTH),
+        utility_width = requested_utility_width
+        main_width = requested_main_width
+
+        usable_thread_height = max(
+            UI_MIN_CONVERSATION_HEIGHT + UI_MIN_COMPOSER_HEIGHT,
+            total_height - self._THREAD_VERTICAL_CHROME,
         )
-        main_width = max(self._MIN_CHAT_WIDTH, available_inner_width - utility_width)
+        conversation_height = int(usable_thread_height * self.config.ui.panel_conversation_ratio)
+        conversation_height = min(
+            usable_thread_height - UI_MIN_COMPOSER_HEIGHT,
+            max(UI_MIN_CONVERSATION_HEIGHT, conversation_height),
+        )
+        composer_height = max(
+            UI_MIN_COMPOSER_HEIGHT,
+            usable_thread_height - conversation_height,
+        )
 
         self.set_default_size(total_width, total_height)
         if hasattr(self, "stage"):
@@ -378,6 +408,10 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
             self.left_stack_box.set_size_request(utility_width, total_height - self._OUTER_MARGIN)
         if hasattr(self, "main_box"):
             self.main_box.set_size_request(main_width, total_height - self._OUTER_MARGIN)
+        if hasattr(self, "response_scroll"):
+            self.response_scroll.set_size_request(main_width - 28, conversation_height)
+        if hasattr(self, "composer"):
+            self.composer.set_size_request(main_width - 28, composer_height)
 
     def _rail_button(self, icon_name: str, callback, tooltip: str) -> Gtk.Button:
         """Create one sidebar rail button with a symbolic icon."""
@@ -461,17 +495,27 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         shell.append(content)
 
         title_label = Gtk.Label(label=session.title, xalign=0.0)
+        title_label.set_wrap(True)
+        title_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        title_label.set_lines(2)
+        title_label.set_max_width_chars(24)
         title_label.add_css_class("nyx-history-title")
         content.append(title_label)
 
         subtitle_label = Gtk.Label(label=session.subtitle, xalign=0.0)
+        subtitle_label.set_wrap(True)
+        subtitle_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        subtitle_label.set_lines(2)
+        subtitle_label.set_max_width_chars(24)
         subtitle_label.add_css_class("nyx-history-subtitle")
         content.append(subtitle_label)
 
         preview_label = Gtk.Label(label=session.preview, xalign=0.0)
         preview_label.add_css_class("nyx-history-preview")
         preview_label.set_wrap(True)
-        preview_label.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        preview_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        preview_label.set_lines(3)
+        preview_label.set_max_width_chars(28)
         content.append(preview_label)
 
         delete_button = Gtk.Button()

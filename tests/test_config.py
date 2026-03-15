@@ -231,6 +231,7 @@ panel_width = 1180
 panel_height = 700
 panel_history_width = 290
 panel_chat_width = 810
+panel_conversation_ratio = 0.72
 """.strip()
     )
 
@@ -239,10 +240,12 @@ panel_chat_width = 810
     assert config.ui.panel_height == 700
     assert config.ui.panel_history_width == 290
     assert config.ui.panel_chat_width == 810
+    assert config.ui.panel_conversation_ratio == 0.72
 
     rendered = render_config_toml(config)
     saved = save_config_text(rendered, tmp_path / "saved.toml")
-    assert saved.ui.panel_width == 1180
+    assert saved.ui.panel_width == 1186
     assert saved.ui.panel_height == 700
     assert saved.ui.panel_history_width == 290
     assert saved.ui.panel_chat_width == 810
+    assert saved.ui.panel_conversation_ratio == 0.72

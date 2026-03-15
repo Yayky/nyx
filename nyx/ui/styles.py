@@ -287,10 +287,6 @@ textview.nyx-settings-text border {
   padding: 14px;
 }
 
-.nyx-settings-columns entry {
-  min-width: 150px;
-}
-
 .nyx-settings-codeblock {
   background: alpha(__BG_CARD_ALT__, 0.16);
   border: 1px solid alpha(__BORDER_PRIMARY__, 0.14);

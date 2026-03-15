@@ -12,7 +12,14 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk
 
-from nyx.config import NyxConfig, load_config, load_config_text, render_config_toml, save_config_text
+from nyx.config import (
+    NyxConfig,
+    compute_panel_total_width,
+    load_config,
+    load_config_text,
+    render_config_toml,
+    save_config_text,
+)
 
 
 class NyxSettingsEditor(Gtk.Box):
@@ -108,21 +115,16 @@ class NyxSettingsEditor(Gtk.Box):
             "These colors override the wallpaper-derived palette when set.",
         )
         content.append(theme_section)
-
-        theme_grid = Gtk.Grid(column_spacing=14, row_spacing=10)
-        theme_grid.add_css_class("nyx-settings-columns")
-        theme_section.append(theme_grid)
-
         self.theme_entries = {
-            "text_primary": self._grid_entry(theme_grid, "Text Primary", 0, 0),
-            "text_muted": self._grid_entry(theme_grid, "Text Muted", 0, 2),
-            "accent_cool": self._grid_entry(theme_grid, "Accent Cool", 1, 0),
-            "accent_warm": self._grid_entry(theme_grid, "Accent Warm", 1, 2),
-            "border_primary": self._grid_entry(theme_grid, "Border Primary", 2, 0),
-            "border_soft": self._grid_entry(theme_grid, "Border Soft", 2, 2),
-            "bg_panel": self._grid_entry(theme_grid, "Panel Background", 3, 0),
-            "bg_card": self._grid_entry(theme_grid, "Card Background", 3, 2),
-            "shadow_color": self._grid_entry(theme_grid, "Shadow Color", 4, 0),
+            "text_primary": self._section_entry(theme_section, "Text Primary"),
+            "text_muted": self._section_entry(theme_section, "Text Muted"),
+            "accent_cool": self._section_entry(theme_section, "Accent Cool"),
+            "accent_warm": self._section_entry(theme_section, "Accent Warm"),
+            "border_primary": self._section_entry(theme_section, "Border Primary"),
+            "border_soft": self._section_entry(theme_section, "Border Soft"),
+            "bg_panel": self._section_entry(theme_section, "Panel Background"),
+            "bg_card": self._section_entry(theme_section, "Card Background"),
+            "shadow_color": self._section_entry(theme_section, "Shadow Color"),
         }
 
         overlay = self._section(
@@ -135,10 +137,19 @@ class NyxSettingsEditor(Gtk.Box):
         self.hotkey_entry = self._section_entry(overlay, "Summon Hotkey")
         self.launcher_width_entry = self._section_entry(overlay, "Popup Width (px)")
         self.launcher_height_entry = self._section_entry(overlay, "Popup Height (px)")
-        self.sidebar_width_entry = self._section_entry(overlay, "Sidebar Width (px)")
         self.sidebar_height_entry = self._section_entry(overlay, "Sidebar Height (px)")
         self.history_width_entry = self._section_entry(overlay, "History/Settings Width (px)")
         self.chat_width_entry = self._section_entry(overlay, "Chat Width (px)")
+        self.conversation_ratio_entry = self._section_entry(overlay, "Conversation Height Ratio")
+        self.computed_sidebar_width_label = self._section_value(overlay, "Computed Sidebar Width")
+
+        overlay_note = Gtk.Label(
+            label="Sidebar width is derived from the history/settings width and chat width. Long content wraps instead of widening the panel.",
+            xalign=0.0,
+        )
+        overlay_note.set_wrap(True)
+        overlay_note.add_css_class("nyx-settings-help")
+        overlay.append(overlay_note)
 
         hyprland_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         hyprland_box.add_css_class("nyx-settings-codeblock")
@@ -272,17 +283,21 @@ class NyxSettingsEditor(Gtk.Box):
         row.append(toggle)
         return toggle
 
-    def _grid_entry(self, grid: Gtk.Grid, label_text: str, row: int, column: int) -> Gtk.Entry:
-        """Create one labeled theme entry inside a two-column grid."""
+    def _section_value(self, section: Gtk.Box, label_text: str) -> Gtk.Label:
+        """Append one labeled read-only value row to a settings section."""
+
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        section.append(row)
 
         label = Gtk.Label(label=label_text, xalign=0.0)
         label.add_css_class("nyx-settings-label")
-        grid.attach(label, column, row, 1, 1)
+        row.append(label)
 
-        entry = Gtk.Entry()
-        entry.set_hexpand(True)
-        grid.attach(entry, column + 1, row, 1, 1)
-        return entry
+        value = Gtk.Label(xalign=0.0)
+        value.set_wrap(True)
+        value.add_css_class("nyx-metadata")
+        row.append(value)
+        return value
 
     def _populate_controls_from_config(self) -> None:
         """Populate structured controls from the active config object."""
@@ -292,10 +307,13 @@ class NyxSettingsEditor(Gtk.Box):
         self.hotkey_entry.set_text(self.config.ui.summon_hotkey)
         self.launcher_width_entry.set_text(str(self.config.ui.launcher_width))
         self.launcher_height_entry.set_text(str(self.config.ui.launcher_height))
-        self.sidebar_width_entry.set_text(str(self.config.ui.panel_width))
         self.sidebar_height_entry.set_text(str(self.config.ui.panel_height))
         self.history_width_entry.set_text(str(self.config.ui.panel_history_width))
         self.chat_width_entry.set_text(str(self.config.ui.panel_chat_width))
+        self.conversation_ratio_entry.set_text(str(self.config.ui.panel_conversation_ratio))
+        self.computed_sidebar_width_label.set_label(
+            f"{compute_panel_total_width(self.config.ui.panel_history_width, self.config.ui.panel_chat_width)} px"
+        )
         self.wallpaper_entry.set_text(self.config.ui.wallpaper_path)
         self.font_entry.set_text(self.config.ui.font)
         self.theme_mode_entry.set_text(self.config.ui.theme_mode)
@@ -337,7 +355,6 @@ class NyxSettingsEditor(Gtk.Box):
         draft.ui.summon_hotkey = self.hotkey_entry.get_text().strip() or draft.ui.summon_hotkey
         draft.ui.launcher_width = _safe_int(self.launcher_width_entry.get_text(), draft.ui.launcher_width)
         draft.ui.launcher_height = _safe_int(self.launcher_height_entry.get_text(), draft.ui.launcher_height)
-        draft.ui.panel_width = _safe_int(self.sidebar_width_entry.get_text(), draft.ui.panel_width)
         draft.ui.panel_height = _safe_int(self.sidebar_height_entry.get_text(), draft.ui.panel_height)
         draft.ui.panel_history_width = _safe_int(
             self.history_width_entry.get_text(),
@@ -345,6 +362,20 @@ class NyxSettingsEditor(Gtk.Box):
         )
         draft.ui.panel_chat_width = _safe_int(
             self.chat_width_entry.get_text(),
+            draft.ui.panel_chat_width,
+        )
+        draft.ui.panel_conversation_ratio = min(
+            0.92,
+            max(
+                0.35,
+                _safe_float(
+                    self.conversation_ratio_entry.get_text(),
+                    draft.ui.panel_conversation_ratio,
+                ),
+            ),
+        )
+        draft.ui.panel_width = compute_panel_total_width(
+            draft.ui.panel_history_width,
             draft.ui.panel_chat_width,
         )
         draft.ui.wallpaper_path = self.wallpaper_entry.get_text().strip()
