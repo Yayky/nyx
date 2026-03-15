@@ -70,9 +70,9 @@ async def test_overlay_controller_maps_result_to_view_state(tmp_path: Path) -> N
         window_title="launcher-test",
         workspace="1",
     )
-    assert state.selected_session_id == 1
+    assert state.selected_session_id == controller.sessions[0].session_id
     assert controller.sessions[0].title == "hello"
-    assert "You:" in controller.sessions[0].transcript_text
+    assert "## User" in controller.sessions[0].document_markdown
 
 
 def test_overlay_history_navigation(tmp_path: Path) -> None:
@@ -141,14 +141,16 @@ async def test_overlay_controller_filters_and_restores_sessions(tmp_path: Path) 
     await controller.submit_prompt("beta search")
 
     matches = controller.filter_sessions("beta")
-    assert [session.session_id for session in matches] == [1]
+    assert len(matches) == 1
+    assert matches[0].session_id == controller.sessions[0].session_id
     assert "beta search" in matches[0].search_text
 
-    restored = controller.state_for_session(1)
+    restored = controller.state_for_session(controller.sessions[0].session_id)
     assert restored is not None
-    assert "first response" in restored.response_text
     assert "second response" in restored.response_text
-    assert restored.selected_session_id == 1
+    assert "first response" in restored.conversation_text
+    assert "second response" in restored.conversation_text
+    assert restored.selected_session_id == controller.sessions[0].session_id
 
 
 @pytest.mark.anyio

@@ -48,9 +48,32 @@ _SECTION_KEYS: dict[str, set[str]] = {
         "panel_width",
         "font",
         "summon_hotkey",
+        "theme_mode",
+        "wallpaper_path",
+        "backdrop_enabled",
+        "backdrop_blur_radius",
+        "backdrop_dim_opacity",
+        "theme",
+        "history",
     },
     "system": {"confirm_destructive", "yolo", "screenshot_tmp"},
 }
+
+_UI_THEME_KEYS = {
+    "text_primary",
+    "text_muted",
+    "accent_cool",
+    "accent_warm",
+    "border_primary",
+    "border_soft",
+    "bg_outer",
+    "bg_panel",
+    "bg_card",
+    "bg_card_alt",
+    "shadow_color",
+}
+
+_UI_HISTORY_KEYS = {"backend"}
 
 
 @dataclass(slots=True)
@@ -171,6 +194,37 @@ class UiConfig:
     panel_width: int
     font: str
     summon_hotkey: str
+    theme_mode: str
+    wallpaper_path: str
+    backdrop_enabled: bool
+    backdrop_blur_radius: int
+    backdrop_dim_opacity: float
+    theme: "UiThemeConfig"
+    history: "UiHistoryConfig"
+
+
+@dataclass(slots=True)
+class UiThemeConfig:
+    """Theme color overrides for the GTK overlay."""
+
+    text_primary: str
+    text_muted: str
+    accent_cool: str
+    accent_warm: str
+    border_primary: str
+    border_soft: str
+    bg_outer: str
+    bg_panel: str
+    bg_card: str
+    bg_card_alt: str
+    shadow_color: str
+
+
+@dataclass(slots=True)
+class UiHistoryConfig:
+    """Conversation history backend configuration."""
+
+    backend: str
 
 
 @dataclass(slots=True)
@@ -377,6 +431,27 @@ def render_config_toml(config: NyxConfig) -> str:
                 f"panel_width = {config.ui.panel_width}",
                 f'font = "{_escape_string(config.ui.font)}"',
                 f'summon_hotkey = "{_escape_string(config.ui.summon_hotkey)}"',
+                f'theme_mode = "{_escape_string(config.ui.theme_mode)}"',
+                f'wallpaper_path = "{_escape_string(config.ui.wallpaper_path)}"',
+                f"backdrop_enabled = {_render_bool(config.ui.backdrop_enabled)}",
+                f"backdrop_blur_radius = {config.ui.backdrop_blur_radius}",
+                f"backdrop_dim_opacity = {config.ui.backdrop_dim_opacity}",
+                "",
+                "[ui.history]",
+                f'backend = "{_escape_string(config.ui.history.backend)}"',
+                "",
+                "[ui.theme]",
+                f'text_primary = "{_escape_string(config.ui.theme.text_primary)}"',
+                f'text_muted = "{_escape_string(config.ui.theme.text_muted)}"',
+                f'accent_cool = "{_escape_string(config.ui.theme.accent_cool)}"',
+                f'accent_warm = "{_escape_string(config.ui.theme.accent_warm)}"',
+                f'border_primary = "{_escape_string(config.ui.theme.border_primary)}"',
+                f'border_soft = "{_escape_string(config.ui.theme.border_soft)}"',
+                f'bg_outer = "{_escape_string(config.ui.theme.bg_outer)}"',
+                f'bg_panel = "{_escape_string(config.ui.theme.bg_panel)}"',
+                f'bg_card = "{_escape_string(config.ui.theme.bg_card)}"',
+                f'bg_card_alt = "{_escape_string(config.ui.theme.bg_card_alt)}"',
+                f'shadow_color = "{_escape_string(config.ui.theme.shadow_color)}"',
             ]
         ),
         "\n".join(
@@ -502,11 +577,32 @@ def _default_config_dict() -> dict[str, Any]:
         "ui": {
             "overlay_anchor": "top-center",
             "overlay_monitor": "focused",
-            "launcher_width": 700,
-            "launcher_height": 300,
-            "panel_width": 400,
-            "font": "monospace 11",
+            "launcher_width": 760,
+            "launcher_height": 308,
+            "panel_width": 420,
+            "font": "monospace 12",
             "summon_hotkey": "Super+A",
+            "theme_mode": "wallpaper",
+            "wallpaper_path": "",
+            "backdrop_enabled": True,
+            "backdrop_blur_radius": 18,
+            "backdrop_dim_opacity": 0.58,
+            "history": {
+                "backend": "sqlite",
+            },
+            "theme": {
+                "text_primary": "",
+                "text_muted": "",
+                "accent_cool": "",
+                "accent_warm": "",
+                "border_primary": "",
+                "border_soft": "",
+                "bg_outer": "",
+                "bg_panel": "",
+                "bg_card": "",
+                "bg_card_alt": "",
+                "shadow_color": "",
+            },
         },
         "system": {
             "confirm_destructive": True,
@@ -529,6 +625,9 @@ def _merge_top_level(
 
         if key == "models":
             _merge_models_section(destination[key], value, config_path)
+            continue
+        if key == "ui":
+            _merge_ui_section(destination[key], value, config_path)
             continue
 
         if not isinstance(value, dict):
@@ -578,6 +677,43 @@ def _merge_models_section(
             destination["providers"] = value
         else:
             destination[key] = value
+
+
+def _merge_ui_section(
+    destination: dict[str, Any],
+    overrides: Any,
+    config_path: Path,
+) -> None:
+    """Merge the UI section and validate nested theme/history tables."""
+
+    if not isinstance(overrides, dict):
+        raise ValueError(f"Config section 'ui' in {config_path} must be a TOML table.")
+
+    unknown_keys = set(overrides) - _SECTION_KEYS["ui"]
+    if unknown_keys:
+        unknown = ", ".join(sorted(unknown_keys))
+        raise ValueError(f"Unknown keys in section 'ui' in {config_path}: {unknown}")
+
+    for key, value in overrides.items():
+        if key == "theme":
+            if not isinstance(value, dict):
+                raise ValueError(f"Config section 'ui.theme' in {config_path} must be a TOML table.")
+            unknown_theme_keys = set(value) - _UI_THEME_KEYS
+            if unknown_theme_keys:
+                unknown = ", ".join(sorted(unknown_theme_keys))
+                raise ValueError(f"Unknown keys in section 'ui.theme' in {config_path}: {unknown}")
+            destination["theme"].update(value)
+            continue
+        if key == "history":
+            if not isinstance(value, dict):
+                raise ValueError(f"Config section 'ui.history' in {config_path} must be a TOML table.")
+            unknown_history_keys = set(value) - _UI_HISTORY_KEYS
+            if unknown_history_keys:
+                unknown = ", ".join(sorted(unknown_history_keys))
+                raise ValueError(f"Unknown keys in section 'ui.history' in {config_path}: {unknown}")
+            destination["history"].update(value)
+            continue
+        destination[key] = value
 
 
 def _build_config(data: dict[str, Any], config_path: Path) -> NyxConfig:
@@ -632,7 +768,22 @@ def _build_config(data: dict[str, Any], config_path: Path) -> NyxConfig:
         ),
         skills=SkillsConfig(disabled=list(data["skills"]["disabled"])),
         monitors=MonitorsConfig(**data["monitors"]),
-        ui=UiConfig(**data["ui"]),
+        ui=UiConfig(
+            overlay_anchor=data["ui"]["overlay_anchor"],
+            overlay_monitor=data["ui"]["overlay_monitor"],
+            launcher_width=data["ui"]["launcher_width"],
+            launcher_height=data["ui"]["launcher_height"],
+            panel_width=data["ui"]["panel_width"],
+            font=data["ui"]["font"],
+            summon_hotkey=data["ui"]["summon_hotkey"],
+            theme_mode=data["ui"]["theme_mode"],
+            wallpaper_path=data["ui"]["wallpaper_path"],
+            backdrop_enabled=data["ui"]["backdrop_enabled"],
+            backdrop_blur_radius=data["ui"]["backdrop_blur_radius"],
+            backdrop_dim_opacity=data["ui"]["backdrop_dim_opacity"],
+            theme=UiThemeConfig(**data["ui"]["theme"]),
+            history=UiHistoryConfig(**data["ui"]["history"]),
+        ),
         system=SystemConfig(
             confirm_destructive=data["system"]["confirm_destructive"],
             yolo=data["system"]["yolo"],

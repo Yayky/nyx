@@ -1,14 +1,11 @@
-"""Intent routing for the current Nyx phase.
-
-The router now supports dedicated Phase 6 and Phase 7 feature modules while
-keeping the general provider-backed response flow for other prompts. Routing is
-still intentionally lightweight until later context and module phases arrive.
-"""
+"""Intent routing for Nyx."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import logging
+from typing import Any
 
 from nyx.bridges.base import SystemBridge
 from nyx.calendar.service import CalendarService
@@ -22,11 +19,11 @@ from nyx.modules.notes import NotesModule
 from nyx.modules.rag import RagModule
 from nyx.modules.screen_context import ScreenContextModule
 from nyx.modules.skills import SkillsModule
-from nyx.modules.system_monitor import SystemMonitorModule
 from nyx.modules.system_control import SystemControlModule
+from nyx.modules.system_monitor import SystemMonitorModule
 from nyx.modules.tasks import TasksModule
 from nyx.modules.web_lookup import WebLookupModule
-from nyx.providers.base import ProviderError
+from nyx.providers.base import ProviderError, ProviderMessage
 from nyx.providers.registry import ProviderQueryResult, ProviderRegistry
 from nyx.rag import ChromaRagStore, OllamaEmbedder, RagService
 from nyx.sync import CrossDeviceSyncService
@@ -35,11 +32,12 @@ from nyx.web import WebLookupService
 
 @dataclass(slots=True)
 class IntentRequest:
-    """Input passed from CLI or future UI layers into the intent router."""
+    """Input passed from CLI or UI layers into the intent router."""
 
     text: str
     model_override: str | None
     yolo: bool
+    conversation_messages: list[ProviderMessage] | None = None
 
 
 @dataclass(slots=True)
@@ -55,8 +53,19 @@ class IntentResult:
     token_count: int | None = None
 
 
+@dataclass(slots=True)
+class ModuleRouteSpec:
+    """Lazy route definition for one intent-handling module."""
+
+    name: str
+    intent: str
+    matcher: Callable[[str], bool]
+    planning_error_message: str
+    execution_error_message: str
+
+
 class IntentRouter:
-    """Current Nyx intent router built on the provider registry contract."""
+    """Intent router built on the provider registry contract."""
 
     def __init__(
         self,
@@ -78,124 +87,33 @@ class IntentRouter:
         web_lookup_module: WebLookupModule | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
-        """Initialize the router with explicit dependencies.
-
-        Args:
-            config: Loaded Nyx configuration.
-            bridge: Active system bridge implementation. It is stored now so the
-                routing API matches later phases and backs system-control
-                execution paths.
-            provider_registry: Provider registry responsible for model selection,
-                availability checks, and fallback behavior.
-            calendar_module: Optional prebuilt calendar module.
-            cross_device_sync_module: Optional prebuilt cross-device sync module.
-            git_github_module: Optional prebuilt git/github module.
-            macros_module: Optional prebuilt macros module.
-            memory_module: Optional prebuilt memory module.
-            notes_module: Optional prebuilt notes module.
-            rag_module: Optional prebuilt RAG module.
-            screen_context_module: Optional prebuilt screen-context module.
-            skills_module: Optional prebuilt skills module.
-            system_monitor_module: Optional prebuilt system-monitor module.
-            system_control_module: Optional prebuilt system-control module.
-            tasks_module: Optional prebuilt tasks module.
-            web_lookup_module: Optional prebuilt web lookup module.
-            logger: Optional logger for router diagnostics.
-        """
+        """Initialize the router with explicit dependencies."""
 
         self.config = config
         self.bridge = bridge
         self.provider_registry = provider_registry
         self.logger = logger or logging.getLogger("nyx.intent_router")
-        self.calendar_module = calendar_module or CalendarModule(
-            config=config,
-            provider_registry=provider_registry,
-            calendar_service=CalendarService(config=config, logger=self.logger),
-            logger=self.logger,
-        )
-        self.cross_device_sync_module = cross_device_sync_module or CrossDeviceSyncModule(
-            config=config,
-            provider_registry=provider_registry,
-            sync_service=CrossDeviceSyncService(config=config, logger=self.logger),
-            logger=self.logger,
-        )
-        self.git_github_module = git_github_module or GitHubModule(
-            config=config,
-            provider_registry=provider_registry,
-            logger=self.logger,
-        )
-        self.macros_module = macros_module or MacrosModule(
-            config=config,
-            bridge=bridge,
-            provider_registry=provider_registry,
-            logger=self.logger,
-        )
-        self.memory_module = memory_module or MemoryModule(
-            config=config,
-            provider_registry=provider_registry,
-            logger=self.logger,
-        )
-        self.skills_module = skills_module or SkillsModule(
-            config=config,
-            bridge=bridge,
-            provider_registry=provider_registry,
-            logger=self.logger,
-        )
-        self.notes_module = notes_module or NotesModule(
-            config=config,
-            provider_registry=provider_registry,
-            logger=self.logger,
-        )
-        self.system_monitor_module = system_monitor_module or SystemMonitorModule(
-            config=config,
-            provider_registry=provider_registry,
-            logger=self.logger,
-        )
-        self.tasks_module = tasks_module or TasksModule(
-            config=config,
-            provider_registry=provider_registry,
-            logger=self.logger,
-        )
-        self.rag_module = rag_module or RagModule(
-            config=config,
-            provider_registry=provider_registry,
-            rag_service=RagService(
-                config=config,
-                store=ChromaRagStore(db_path=config.rag.db_path, logger=self.logger),
-                embedder=OllamaEmbedder(config=config, logger=self.logger),
-                logger=self.logger,
-            ),
-            logger=self.logger,
-        )
-        self.screen_context_module = screen_context_module or ScreenContextModule(
-            config=config,
-            bridge=bridge,
-            provider_registry=provider_registry,
-            logger=self.logger,
-        )
-        self.system_control_module = system_control_module or SystemControlModule(
-            config=config,
-            bridge=bridge,
-            provider_registry=provider_registry,
-            logger=self.logger,
-        )
-        self.web_lookup_module = web_lookup_module or WebLookupModule(
-            config=config,
-            provider_registry=provider_registry,
-            web_service=WebLookupService(config=config, logger=self.logger),
-            logger=self.logger,
-        )
+        self._module_instances: dict[str, Any] = {}
+        self._module_overrides = {
+            "calendar": calendar_module,
+            "cross_device_sync": cross_device_sync_module,
+            "git_github": git_github_module,
+            "macros": macros_module,
+            "memory": memory_module,
+            "notes": notes_module,
+            "rag": rag_module,
+            "screen_context": screen_context_module,
+            "skills": skills_module,
+            "system_control": system_control_module,
+            "system_monitor": system_monitor_module,
+            "tasks": tasks_module,
+            "web_lookup": web_lookup_module,
+        }
+        self._module_factories = self._build_module_factories()
+        self._route_specs = self._build_route_specs()
 
     async def route(self, request: IntentRequest) -> IntentResult:
-        """Route a prompt through the provider layer.
-
-        Args:
-            request: The user request to route.
-
-        Returns:
-            An ``IntentResult`` containing the selected provider output or a
-            degraded fallback message when no configured providers succeed.
-        """
+        """Route a prompt through the provider layer and feature modules."""
 
         requested_provider = request.model_override or self.config.models.default
         self.logger.info(
@@ -204,43 +122,12 @@ class IntentRouter:
             request.yolo,
         )
 
-        if self.memory_module.matches_request(request.text):
-            return await self._route_memory(request)
+        for spec in self._route_specs:
+            if spec.matcher(request.text):
+                return await self._dispatch_module_request(spec, request)
 
-        if self.macros_module.matches_request(request.text):
-            return await self._route_macros(request)
-
-        if self.calendar_module.matches_request(request.text):
-            return await self._route_calendar(request)
-
-        if self.cross_device_sync_module.matches_request(request.text):
-            return await self._route_cross_device_sync(request)
-
-        if self.git_github_module.matches_request(request.text):
-            return await self._route_git_github(request)
-
-        if self.screen_context_module.matches_request(request.text):
-            return await self._route_screen_context(request)
-
-        if self.web_lookup_module.matches_request(request.text):
-            return await self._route_web_lookup(request)
-
-        if self.rag_module.matches_request(request.text):
-            return await self._route_rag(request)
-
-        if self.tasks_module.matches_request(request.text):
-            return await self._route_tasks(request)
-
-        if self.notes_module.matches_request(request.text):
-            return await self._route_notes(request)
-
-        if self.system_monitor_module.matches_request(request.text):
-            return await self._route_system_monitor(request)
-
-        if self.system_control_module.matches_request(request.text):
-            return await self._route_system_control(request)
-
-        skill_result = await self.skills_module.maybe_handle(
+        skills_module = self._get_module("skills")
+        skill_result = await skills_module.maybe_handle(
             request_text=request.text,
             model_override=request.model_override,
         )
@@ -256,11 +143,18 @@ class IntentRouter:
             )
 
         try:
-            provider_result = await self.provider_registry.query(
-                prompt=request.text,
-                context={},
-                preferred_provider_name=request.model_override,
-            )
+            if request.conversation_messages:
+                provider_result = await self.provider_registry.query_messages(
+                    messages=request.conversation_messages,
+                    context={},
+                    preferred_provider_name=request.model_override,
+                )
+            else:
+                provider_result = await self.provider_registry.query(
+                    prompt=request.text,
+                    context={},
+                    preferred_provider_name=request.model_override,
+                )
         except ProviderError as exc:
             self.logger.warning("Provider query failed: %s", exc)
             return IntentResult(
@@ -275,33 +169,254 @@ class IntentRouter:
 
         return self._result_from_provider(provider_result)
 
-    async def _route_system_control(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious system-control request into the Phase 6 module."""
+    def reload_config(self, new_config: NyxConfig, provider_registry: ProviderRegistry) -> None:
+        """Reload runtime config and clear lazy module instances."""
 
+        self.config = new_config
+        self.provider_registry = provider_registry
+        self._module_instances.clear()
+        self._module_factories = self._build_module_factories()
+        self._route_specs = self._build_route_specs()
+
+    def _build_module_factories(self) -> dict[str, Callable[[], Any]]:
+        """Build lazy factories for every feature module."""
+
+        return {
+            "calendar": lambda: CalendarModule(
+                config=self.config,
+                provider_registry=self.provider_registry,
+                calendar_service=CalendarService(config=self.config, logger=self.logger),
+                logger=self.logger,
+            ),
+            "cross_device_sync": lambda: CrossDeviceSyncModule(
+                config=self.config,
+                provider_registry=self.provider_registry,
+                sync_service=CrossDeviceSyncService(config=self.config, logger=self.logger),
+                logger=self.logger,
+            ),
+            "git_github": lambda: GitHubModule(
+                config=self.config,
+                provider_registry=self.provider_registry,
+                logger=self.logger,
+            ),
+            "macros": lambda: MacrosModule(
+                config=self.config,
+                bridge=self.bridge,
+                provider_registry=self.provider_registry,
+                logger=self.logger,
+            ),
+            "memory": lambda: MemoryModule(
+                config=self.config,
+                provider_registry=self.provider_registry,
+                logger=self.logger,
+            ),
+            "notes": lambda: NotesModule(
+                config=self.config,
+                provider_registry=self.provider_registry,
+                logger=self.logger,
+            ),
+            "rag": lambda: RagModule(
+                config=self.config,
+                provider_registry=self.provider_registry,
+                rag_service=RagService(
+                    config=self.config,
+                    store=ChromaRagStore(db_path=self.config.rag.db_path, logger=self.logger),
+                    embedder=OllamaEmbedder(config=self.config, logger=self.logger),
+                    logger=self.logger,
+                ),
+                logger=self.logger,
+            ),
+            "screen_context": lambda: ScreenContextModule(
+                config=self.config,
+                bridge=self.bridge,
+                provider_registry=self.provider_registry,
+                logger=self.logger,
+            ),
+            "skills": lambda: SkillsModule(
+                config=self.config,
+                bridge=self.bridge,
+                provider_registry=self.provider_registry,
+                logger=self.logger,
+            ),
+            "system_control": lambda: SystemControlModule(
+                config=self.config,
+                bridge=self.bridge,
+                provider_registry=self.provider_registry,
+                logger=self.logger,
+            ),
+            "system_monitor": lambda: SystemMonitorModule(
+                config=self.config,
+                provider_registry=self.provider_registry,
+                logger=self.logger,
+            ),
+            "tasks": lambda: TasksModule(
+                config=self.config,
+                provider_registry=self.provider_registry,
+                logger=self.logger,
+            ),
+            "web_lookup": lambda: WebLookupModule(
+                config=self.config,
+                provider_registry=self.provider_registry,
+                web_service=WebLookupService(config=self.config, logger=self.logger),
+                logger=self.logger,
+            ),
+        }
+
+    def _build_route_specs(self) -> list[ModuleRouteSpec]:
+        """Build ordered route specs without instantiating modules."""
+
+        return [
+            self._module_spec(
+                "memory",
+                "memory",
+                MemoryModule.matches_request,
+                "Nyx could not plan the memory update: {error}",
+                "Nyx could not execute the memory action: {error}",
+            ),
+            self._module_spec(
+                "macros",
+                "macros",
+                MacrosModule.matches_request,
+                "Nyx could not plan the macro action: {error}",
+                "Nyx could not execute the macro action: {error}",
+            ),
+            self._module_spec(
+                "calendar",
+                "calendar",
+                CalendarModule.matches_request,
+                "Nyx could not plan the calendar action: {error}",
+                "Nyx could not execute the calendar action: {error}",
+            ),
+            self._module_spec(
+                "cross_device_sync",
+                "cross_device_sync",
+                CrossDeviceSyncModule.matches_request,
+                "Nyx could not plan the cross-device sync action: {error}",
+                "Nyx could not execute the cross-device sync action: {error}",
+            ),
+            self._module_spec(
+                "git_github",
+                "git_github",
+                GitHubModule.matches_request,
+                "Nyx could not plan the git/github action: {error}",
+                "Nyx could not execute the git/github action: {error}",
+            ),
+            self._module_spec(
+                "screen_context",
+                "screen_context",
+                ScreenContextModule.matches_request,
+                "Nyx could not analyze the screen: {error}",
+                "Nyx could not execute the screen-context action: {error}",
+            ),
+            self._module_spec(
+                "web_lookup",
+                "web_lookup",
+                WebLookupModule.matches_request,
+                "Nyx could not plan the web lookup: {error}",
+                "Nyx could not execute the web lookup: {error}",
+            ),
+            self._module_spec(
+                "rag",
+                "rag",
+                RagModule.matches_request,
+                "Nyx could not plan the local search: {error}",
+                "Nyx could not execute the local search: {error}",
+            ),
+            self._module_spec(
+                "tasks",
+                "tasks",
+                TasksModule.matches_request,
+                "Nyx could not plan the task action: {error}",
+                "Nyx could not execute the task action: {error}",
+            ),
+            self._module_spec(
+                "notes",
+                "notes",
+                NotesModule.matches_request,
+                "Nyx could not plan the notes action: {error}",
+                "Nyx could not execute the notes action: {error}",
+            ),
+            self._module_spec(
+                "system_monitor",
+                "system_monitor",
+                SystemMonitorModule.matches_request,
+                "Nyx could not plan the monitor action: {error}",
+                "Nyx could not execute the monitor action: {error}",
+            ),
+            self._module_spec(
+                "system_control",
+                "system_control",
+                SystemControlModule.matches_request,
+                "Nyx could not plan the system action: {error}",
+                "Nyx could not execute the system action: {error}",
+            ),
+        ]
+
+    def _module_spec(
+        self,
+        name: str,
+        intent: str,
+        matcher: Callable[[str], bool],
+        planning_error_message: str,
+        execution_error_message: str,
+    ) -> ModuleRouteSpec:
+        """Create one module route specification."""
+
+        return ModuleRouteSpec(
+            name=name,
+            intent=intent,
+            matcher=matcher,
+            planning_error_message=planning_error_message,
+            execution_error_message=execution_error_message,
+        )
+
+    def _get_module(self, name: str) -> Any:
+        """Return a lazily initialized module instance."""
+
+        if name in self._module_instances:
+            return self._module_instances[name]
+
+        override = self._module_overrides.get(name)
+        if override is not None:
+            self._module_instances[name] = override
+            return override
+
+        factory = self._module_factories[name]
+        module = factory()
+        self._module_instances[name] = module
+        return module
+
+    async def _dispatch_module_request(
+        self,
+        spec: ModuleRouteSpec,
+        request: IntentRequest,
+    ) -> IntentResult:
+        """Dispatch a routed request into one module using shared error handling."""
+
+        requested_provider = request.model_override or self.config.models.default
+        module = self._get_module(spec.name)
         try:
-            module_result = await self.system_control_module.handle(
+            module_result = await module.handle(
                 request_text=request.text,
                 model_override=request.model_override,
             )
         except ProviderError as exc:
-            self.logger.warning("System-control planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
+            self.logger.warning("%s planning failed: %s", spec.name.replace("_", "-"), exc)
             return IntentResult(
-                response_text=f"Nyx could not plan the system action: {exc}",
-                intent="system_control",
-                target_module="system_control",
+                response_text=spec.planning_error_message.format(error=exc),
+                intent=spec.intent,
+                target_module=spec.name,
                 used_model=requested_provider,
                 degraded=True,
                 model_name=None,
                 token_count=None,
             )
         except Exception as exc:
-            self.logger.exception("System-control routing failed.")
-            requested_provider = request.model_override or self.config.models.default
+            self.logger.exception("%s routing failed.", spec.name.replace("_", "-").capitalize())
             return IntentResult(
-                response_text=f"Nyx could not execute the system action: {exc}",
-                intent="system_control",
-                target_module="system_control",
+                response_text=spec.execution_error_message.format(error=exc),
+                intent=spec.intent,
+                target_module=spec.name,
                 used_model=requested_provider,
                 degraded=True,
                 model_name=None,
@@ -310,481 +425,8 @@ class IntentRouter:
 
         return IntentResult(
             response_text=module_result.response_text,
-            intent="system_control",
-            target_module="system_control",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_web_lookup(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious web or live-info request into the Phase 19 module."""
-
-        try:
-            module_result = await self.web_lookup_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("Web lookup planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not plan the web lookup: {exc}",
-                intent="web_lookup",
-                target_module="web_lookup",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception as exc:
-            self.logger.exception("Web lookup routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not execute the web lookup: {exc}",
-                intent="web_lookup",
-                target_module="web_lookup",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="web_lookup",
-            target_module="web_lookup",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_macros(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious macros request into the Phase 15 module."""
-
-        try:
-            module_result = await self.macros_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("Macros planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not plan the macro action: {exc}",
-                intent="macros",
-                target_module="macros",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception:
-            self.logger.exception("Macros routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text="Nyx could not execute the macro action.",
-                intent="macros",
-                target_module="macros",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="macros",
-            target_module="macros",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_system_monitor(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious monitor-management request into the Phase 17 module."""
-
-        try:
-            module_result = await self.system_monitor_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("System-monitor planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not plan the monitor action: {exc}",
-                intent="system_monitor",
-                target_module="system_monitor",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception:
-            self.logger.exception("System-monitor routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text="Nyx could not execute the monitor action.",
-                intent="system_monitor",
-                target_module="system_monitor",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="system_monitor",
-            target_module="system_monitor",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_notes(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious notes request into the Phase 7 module."""
-
-        try:
-            module_result = await self.notes_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("Notes planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not plan the notes action: {exc}",
-                intent="notes",
-                target_module="notes",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception as exc:
-            self.logger.exception("Notes routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not execute the notes action: {exc}",
-                intent="notes",
-                target_module="notes",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="notes",
-            target_module="notes",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_memory(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious persistent-memory request into the Phase 10 module."""
-
-        try:
-            module_result = await self.memory_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("Memory planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not plan the memory update: {exc}",
-                intent="memory",
-                target_module="memory",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception as exc:
-            self.logger.exception("Memory routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not execute the memory action: {exc}",
-                intent="memory",
-                target_module="memory",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="memory",
-            target_module="memory",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_tasks(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious tasks request into the Phase 13 module."""
-
-        try:
-            module_result = await self.tasks_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("Tasks planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not plan the task action: {exc}",
-                intent="tasks",
-                target_module="tasks",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception as exc:
-            self.logger.exception("Tasks routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not execute the task action: {exc}",
-                intent="tasks",
-                target_module="tasks",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="tasks",
-            target_module="tasks",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_git_github(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious git/GitHub request into the Phase 12 module."""
-
-        try:
-            module_result = await self.git_github_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("Git/GitHub planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not plan the git/github action: {exc}",
-                intent="git_github",
-                target_module="git_github",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception as exc:
-            self.logger.exception("Git/GitHub routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not execute the git/github action: {exc}",
-                intent="git_github",
-                target_module="git_github",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="git_github",
-            target_module="git_github",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_cross_device_sync(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious sync request into the Phase 21 module."""
-
-        try:
-            module_result = await self.cross_device_sync_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("Cross-device sync planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not plan the cross-device sync action: {exc}",
-                intent="cross_device_sync",
-                target_module="cross_device_sync",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception as exc:
-            self.logger.exception("Cross-device sync routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not execute the cross-device sync action: {exc}",
-                intent="cross_device_sync",
-                target_module="cross_device_sync",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="cross_device_sync",
-            target_module="cross_device_sync",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_calendar(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious calendar request into the Phase 14 module."""
-
-        try:
-            module_result = await self.calendar_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("Calendar planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not plan the calendar action: {exc}",
-                intent="calendar",
-                target_module="calendar",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception as exc:
-            self.logger.exception("Calendar routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not execute the calendar action: {exc}",
-                intent="calendar",
-                target_module="calendar",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="calendar",
-            target_module="calendar",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_screen_context(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an explicit screen-analysis request into the Phase 11 module."""
-
-        try:
-            module_result = await self.screen_context_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("Screen-context planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not analyze the screen: {exc}",
-                intent="screen_context",
-                target_module="screen_context",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception as exc:
-            self.logger.exception("Screen-context routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not analyze the screen: {exc}",
-                intent="screen_context",
-                target_module="screen_context",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="screen_context",
-            target_module="screen_context",
-            used_model=module_result.used_model,
-            degraded=module_result.degraded,
-            model_name=module_result.model_name,
-            token_count=module_result.token_count,
-        )
-
-    async def _route_rag(self, request: IntentRequest) -> IntentResult:
-        """Dispatch an obvious RAG lookup request into the Phase 8 module."""
-
-        try:
-            module_result = await self.rag_module.handle(
-                request_text=request.text,
-                model_override=request.model_override,
-            )
-        except ProviderError as exc:
-            self.logger.warning("RAG planning failed: %s", exc)
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not plan the RAG lookup: {exc}",
-                intent="rag",
-                target_module="rag",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-        except Exception as exc:
-            self.logger.exception("RAG routing failed.")
-            requested_provider = request.model_override or self.config.models.default
-            return IntentResult(
-                response_text=f"Nyx could not execute the RAG lookup: {exc}",
-                intent="rag",
-                target_module="rag",
-                used_model=requested_provider,
-                degraded=True,
-                model_name=None,
-                token_count=None,
-            )
-
-        return IntentResult(
-            response_text=module_result.response_text,
-            intent="rag",
-            target_module="rag",
+            intent=spec.intent,
+            target_module=spec.name,
             used_model=module_result.used_model,
             degraded=module_result.degraded,
             model_name=module_result.model_name,
@@ -792,7 +434,7 @@ class IntentRouter:
         )
 
     def _result_from_provider(self, provider_result: ProviderQueryResult) -> IntentResult:
-        """Convert provider output into the current router result contract."""
+        """Convert one provider registry result into a router result."""
 
         return IntentResult(
             response_text=provider_result.text,

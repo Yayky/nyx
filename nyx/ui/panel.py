@@ -1,8 +1,4 @@
-"""GTK4 panel mode for Nyx.
-
-The panel expands the launcher into a two-pane conversation view with a
-persistent history list and an embedded settings editor.
-"""
+"""GTK4 sidebar/panel mode for Nyx."""
 
 from __future__ import annotations
 
@@ -22,7 +18,7 @@ from nyx.ui.monitors import MonitorSelectionState, resolve_overlay_monitor
 from nyx.ui.rendering import render_markdown_to_buffer
 from nyx.ui.session import OverlaySessionController, OverlayViewState, SessionRecord
 from nyx.ui.settings import NyxSettingsEditor
-from nyx.ui.styles import install_ui_css
+from nyx.ui.theme import ResolvedTheme
 
 
 class NyxPanelWindow(Gtk.ApplicationWindow):
@@ -35,6 +31,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         controller: OverlaySessionController,
         logger: logging.Logger,
         monitor_state: MonitorSelectionState,
+        theme: ResolvedTheme,
     ) -> None:
         """Initialize the panel window and its sidebar/main content widgets."""
 
@@ -43,17 +40,17 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.controller = controller
         self.logger = logger
         self.monitor_state = monitor_state
+        self.theme = theme
         self._last_response_text = ""
         self._submission_task: asyncio.Task[None] | None = None
 
-        self.set_title("Nyx Panel")
+        self.set_title("Nyx")
         self.set_default_size(
-            self.config.ui.panel_width + self.config.ui.launcher_width + 120,
-            max(760, self.config.ui.launcher_height + 420),
+            self.config.ui.panel_width + self.config.ui.launcher_width + 180,
+            max(820, self.config.ui.launcher_height + 520),
         )
         self.set_resizable(False)
 
-        install_ui_css(self.config.ui.font)
         self._configure_layer_shell()
         self._build_layout()
         self.refresh_from_controller()
@@ -76,6 +73,39 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         self.prompt_view.grab_focus()
 
+    def refresh_visuals(self, config: NyxConfig, theme: ResolvedTheme) -> None:
+        """Refresh config-bound visual state after settings changes."""
+
+        self.config = config
+        self.theme = theme
+        self.set_default_size(
+            self.config.ui.panel_width + self.config.ui.launcher_width + 180,
+            max(820, self.config.ui.launcher_height + 520),
+        )
+        self._apply_backdrop_picture()
+        self.settings_editor.config = config
+        self.settings_editor._populate_controls_from_config()
+        self.settings_editor._load_editor_text()
+
+    def set_recording_state(self, recording: bool) -> None:
+        """Reflect whether live microphone capture is active."""
+
+        if recording:
+            self.voice_button.add_css_class("recording")
+        else:
+            self.voice_button.remove_css_class("recording")
+
+    def append_prompt_text(self, text: str) -> None:
+        """Append text to the current prompt composer."""
+
+        buffer = self.prompt_view.get_buffer()
+        end = buffer.get_end_iter()
+        if buffer.get_char_count() > 0:
+            buffer.insert(end, "\n")
+            end = buffer.get_end_iter()
+        buffer.insert(end, text)
+        self.focus_prompt()
+
     def _configure_layer_shell(self) -> None:
         """Apply left-sidebar panel layer-shell configuration."""
 
@@ -87,9 +117,9 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         Gtk4LayerShell.set_anchor(self, Gtk4LayerShell.Edge.BOTTOM, True)
         Gtk4LayerShell.set_anchor(self, Gtk4LayerShell.Edge.LEFT, True)
         Gtk4LayerShell.set_anchor(self, Gtk4LayerShell.Edge.RIGHT, False)
-        Gtk4LayerShell.set_margin(self, Gtk4LayerShell.Edge.TOP, 16)
-        Gtk4LayerShell.set_margin(self, Gtk4LayerShell.Edge.BOTTOM, 16)
-        Gtk4LayerShell.set_margin(self, Gtk4LayerShell.Edge.LEFT, 16)
+        Gtk4LayerShell.set_margin(self, Gtk4LayerShell.Edge.TOP, 12)
+        Gtk4LayerShell.set_margin(self, Gtk4LayerShell.Edge.BOTTOM, 12)
+        Gtk4LayerShell.set_margin(self, Gtk4LayerShell.Edge.LEFT, 12)
 
         monitor = self._resolve_monitor()
         if monitor is not None:
@@ -104,53 +134,80 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
     def _build_layout(self) -> None:
         """Create the sidebar and main panel widget tree."""
 
-        root = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        self.set_child(root)
+        overlay = Gtk.Overlay()
+        self.set_child(overlay)
 
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        sidebar.set_margin_top(14)
-        sidebar.set_margin_bottom(14)
-        sidebar.set_margin_start(14)
-        sidebar.set_margin_end(10)
-        sidebar.add_css_class("nyx-overlay-window")
-        sidebar.add_css_class("nyx-sidebar")
-        root.set_start_child(sidebar)
-        root.set_resize_start_child(False)
-        root.set_shrink_start_child(False)
-        root.set_position(self.config.ui.panel_width + 44)
+        self.backdrop_picture = Gtk.Picture()
+        self.backdrop_picture.set_can_shrink(False)
+        self.backdrop_picture.set_content_fit(Gtk.ContentFit.COVER)
+        self.backdrop_picture.add_css_class("nyx-backdrop")
+        overlay.set_child(self.backdrop_picture)
 
-        sidebar_toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        sidebar_toolbar.add_css_class("nyx-sidebar-toolbar")
-        sidebar.append(sidebar_toolbar)
+        stage = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        stage.set_margin_top(10)
+        stage.set_margin_bottom(10)
+        stage.set_margin_start(10)
+        stage.set_margin_end(10)
+        stage.add_css_class("nyx-stage")
+        stage.add_css_class("nyx-stage-panel")
+        overlay.add_overlay(stage)
+        self._apply_backdrop_picture()
 
-        history_button = Gtk.Button(label="History")
-        history_button.add_css_class("flat")
-        history_button.connect("clicked", lambda button: self._show_sidebar_page("history"))
-        sidebar_toolbar.append(history_button)
+        rail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        rail.add_css_class("nyx-rail")
+        stage.append(rail)
 
-        settings_button = Gtk.Button(label="Settings")
-        settings_button.add_css_class("flat")
-        settings_button.connect("clicked", lambda button: self._show_sidebar_page("settings"))
-        sidebar_toolbar.append(settings_button)
+        self.history_button = self._rail_button("view-list-symbolic", self._on_history_clicked)
+        rail.append(self.history_button)
+        self.settings_button = self._rail_button("preferences-system-symbolic", self._on_settings_clicked)
+        rail.append(self.settings_button)
+        self.new_button = self._rail_button("document-new-symbolic", self._on_new_conversation_clicked)
+        rail.append(self.new_button)
+        self.collapse_button = self._rail_button("view-restore-symbolic", self._on_compact_clicked)
+        rail.append(self.collapse_button)
+        rail.append(Gtk.Box(vexpand=True))
 
-        new_button = Gtk.Button(label="New")
-        new_button.add_css_class("flat")
-        new_button.connect("clicked", self._on_new_conversation_clicked)
-        sidebar_toolbar.append(new_button)
+        left_stack_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        left_stack_box.set_size_request(self.config.ui.panel_width, -1)
+        stage.append(left_stack_box)
 
         self.sidebar_stack = Gtk.Stack()
         self.sidebar_stack.set_vexpand(True)
-        sidebar.append(self.sidebar_stack)
+        left_stack_box.append(self.sidebar_stack)
 
         history_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        history_page.add_css_class("nyx-history-pane")
+        self.sidebar_stack.add_titled(history_page, "history", "History")
+
         history_title = Gtk.Label(label="Conversations", xalign=0.0)
         history_title.add_css_class("nyx-section-title")
         history_page.append(history_title)
+
+        history_help = Gtk.Label(
+            label="Search, switch, archive, or delete saved Nyx conversations.",
+            xalign=0.0,
+        )
+        history_help.set_wrap(True)
+        history_help.add_css_class("nyx-settings-help")
+        history_page.append(history_help)
 
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("Search conversations")
         self.search_entry.connect("search-changed", self._on_search_changed)
         history_page.append(self.search_entry)
+
+        history_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        history_page.append(history_actions)
+
+        archive_button = Gtk.Button(label="Archive")
+        archive_button.add_css_class("nyx-button-soft")
+        archive_button.connect("clicked", self._on_archive_clicked)
+        history_actions.append(archive_button)
+
+        delete_button = Gtk.Button(label="Delete")
+        delete_button.add_css_class("nyx-button-soft")
+        delete_button.connect("clicked", self._on_delete_clicked)
+        history_actions.append(delete_button)
 
         sidebar_scroll = Gtk.ScrolledWindow()
         sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -162,9 +219,9 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.session_list.connect("row-selected", self._on_row_selected)
         self.session_list.set_placeholder(Gtk.Label(label="No conversations yet."))
         sidebar_scroll.set_child(self.session_list)
-        self.sidebar_stack.add_titled(history_page, "history", "History")
 
         settings_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        settings_page.add_css_class("nyx-settings-pane")
         settings_scroll = Gtk.ScrolledWindow()
         settings_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         settings_scroll.set_vexpand(True)
@@ -177,73 +234,41 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         settings_scroll.set_child(self.settings_editor)
         self.sidebar_stack.add_titled(settings_page, "settings", "Settings")
 
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        main_box.set_margin_top(14)
-        main_box.set_margin_bottom(14)
-        main_box.set_margin_start(10)
-        main_box.set_margin_end(14)
-        main_box.add_css_class("nyx-overlay-window")
-        root.set_end_child(main_box)
-        root.set_resize_end_child(True)
-        root.set_shrink_end_child(False)
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        main_box.set_hexpand(True)
+        stage.append(main_box)
+
+        thread_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        thread_pane.add_css_class("nyx-thread-pane")
+        thread_pane.set_vexpand(True)
+        main_box.append(thread_pane)
 
         self.status_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.status_row.add_css_class("nyx-status-row")
-        main_box.append(self.status_row)
-
-        self.spinner = Gtk.Spinner()
-        self.status_row.append(self.spinner)
+        self.status_row.add_css_class("nyx-status-strip")
+        thread_pane.append(self.status_row)
 
         self.provider_label = Gtk.Label(xalign=0.0)
-        self.provider_label.add_css_class("nyx-status-label")
         self.provider_label.set_hexpand(True)
         self.status_row.append(self.provider_label)
 
         self.tokens_label = self._chip_label()
         self.status_row.append(self.tokens_label)
 
+        self.degraded_label = self._chip_label("degraded")
+        self.status_row.append(self.degraded_label)
+
         self.window_label = self._chip_label()
         self.status_row.append(self.window_label)
 
-        self.degraded_label = self._chip_label()
-        self.degraded_label.set_label("⚠ degraded")
-        self.status_row.append(self.degraded_label)
-
-        self.yolo_label = self._chip_label()
-        self.yolo_label.set_label("⚡ YOLO")
-        self.status_row.append(self.yolo_label)
-
-        settings_shortcut_button = Gtk.Button(label="Settings")
-        settings_shortcut_button.add_css_class("flat")
-        settings_shortcut_button.connect("clicked", lambda button: self._show_sidebar_page("settings"))
-        self.status_row.append(settings_shortcut_button)
-
-        prompt_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        prompt_frame.add_css_class("nyx-prompt")
-        main_box.append(prompt_frame)
-
-        self.prompt_view = Gtk.TextView()
-        self.prompt_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.prompt_view.set_monospace(True)
-        self.prompt_view.set_top_margin(8)
-        self.prompt_view.set_bottom_margin(8)
-        self.prompt_view.set_left_margin(10)
-        self.prompt_view.set_right_margin(10)
-        self.prompt_view.set_size_request(-1, 92)
-        prompt_frame.append(self.prompt_view)
-
-        prompt_controller = Gtk.EventControllerKey()
-        prompt_controller.connect("key-pressed", self._on_prompt_key_pressed)
-        self.prompt_view.add_controller(prompt_controller)
-
-        response_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        response_frame.add_css_class("nyx-response")
-        main_box.append(response_frame)
+        copy_button = Gtk.Button(label="Copy")
+        copy_button.add_css_class("nyx-button-soft")
+        copy_button.connect("clicked", lambda button: self._copy_last_response())
+        self.status_row.append(copy_button)
 
         response_scroll = Gtk.ScrolledWindow()
         response_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         response_scroll.set_vexpand(True)
-        response_frame.append(response_scroll)
+        thread_pane.append(response_scroll)
 
         self.response_view = Gtk.TextView()
         self.response_view.set_editable(False)
@@ -254,23 +279,102 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.response_view.set_bottom_margin(10)
         self.response_view.set_left_margin(10)
         self.response_view.set_right_margin(10)
+        self.response_view.add_css_class("nyx-thread-view")
         response_scroll.set_child(self.response_view)
+
+        composer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        composer.add_css_class("nyx-composer")
+        main_box.append(composer)
+
+        prompt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        prompt_box.set_hexpand(True)
+        composer.append(prompt_box)
+
+        self.prompt_view = Gtk.TextView()
+        self.prompt_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.prompt_view.set_monospace(True)
+        self.prompt_view.set_top_margin(8)
+        self.prompt_view.set_bottom_margin(8)
+        self.prompt_view.set_left_margin(10)
+        self.prompt_view.set_right_margin(10)
+        self.prompt_view.set_size_request(-1, 110)
+        self.prompt_view.add_css_class("nyx-popup-input")
+        prompt_box.append(self.prompt_view)
+
+        prompt_controller = Gtk.EventControllerKey()
+        prompt_controller.connect("key-pressed", self._on_prompt_key_pressed)
+        self.prompt_view.add_controller(prompt_controller)
+
+        actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        composer.append(actions)
+
+        self.voice_button = self._icon_button("audio-input-microphone-symbolic", self._on_voice_clicked)
+        actions.append(self.voice_button)
+
+        send_button = self._icon_button("mail-send-symbolic", self._on_send_clicked)
+        actions.append(send_button)
+
+        compact_button = self._icon_button("view-restore-symbolic", self._on_compact_clicked)
+        actions.append(compact_button)
+
+        hint = Gtk.Label(
+            label="Enter to send • Shift+Enter for newline • Esc to close",
+            xalign=0.0,
+        )
+        hint.add_css_class("nyx-hint")
+        main_box.append(hint)
 
         window_controller = Gtk.EventControllerKey()
         window_controller.connect("key-pressed", self._on_window_key_pressed)
         self.add_controller(window_controller)
 
-    def _chip_label(self) -> Gtk.Label:
-        """Create a rounded status-chip label."""
+    def _apply_backdrop_picture(self) -> None:
+        """Refresh the panel backdrop image."""
 
-        label = Gtk.Label()
+        if self.theme.backdrop_path is not None and self.theme.backdrop_path.exists():
+            self.backdrop_picture.set_filename(str(self.theme.backdrop_path))
+            self.backdrop_picture.set_visible(True)
+        else:
+            self.backdrop_picture.set_visible(False)
+
+    def _rail_button(self, icon_name: str, callback) -> Gtk.Button:
+        """Create one sidebar rail button with a symbolic icon."""
+
+        button = Gtk.Button()
+        button.set_child(Gtk.Image.new_from_icon_name(icon_name))
+        button.connect("clicked", callback)
+        return button
+
+    def _icon_button(self, icon_name: str, callback) -> Gtk.Button:
+        """Create one icon-only action button."""
+
+        button = Gtk.Button()
+        button.add_css_class("nyx-icon-button")
+        button.set_child(Gtk.Image.new_from_icon_name(icon_name))
+        button.connect("clicked", callback)
+        return button
+
+    def _chip_label(self, text: str = "") -> Gtk.Label:
+        """Create one rounded status-chip label."""
+
+        label = Gtk.Label(label=text)
         label.add_css_class("nyx-chip")
         return label
 
+    def _set_active_class(self, widget: Gtk.Widget, active: bool) -> None:
+        """Toggle the ``active`` CSS class on one widget."""
+
+        if active:
+            widget.add_css_class("active")
+        else:
+            widget.remove_css_class("active")
+
     def _show_sidebar_page(self, page_name: str) -> None:
-        """Show one sidebar stack page by name."""
+        """Show one sidebar stack page by name and update rail highlights."""
 
         self.sidebar_stack.set_visible_child_name(page_name)
+        self._set_active_class(self.history_button, page_name == "history")
+        self._set_active_class(self.settings_button, page_name == "settings")
 
     def _on_search_changed(self, search_entry: Gtk.SearchEntry) -> None:
         """Rebuild the session list when the search query changes."""
@@ -302,29 +406,25 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         """Create the list-box row widget for one conversation."""
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.add_css_class("nyx-session-row")
+        box.add_css_class("nyx-history-row")
 
         title_label = Gtk.Label(label=session.title, xalign=0.0)
-        title_label.add_css_class("nyx-session-title")
+        title_label.add_css_class("nyx-history-title")
         box.append(title_label)
 
         subtitle_label = Gtk.Label(label=session.subtitle, xalign=0.0)
-        subtitle_label.add_css_class("nyx-session-subtitle")
+        subtitle_label.add_css_class("nyx-history-subtitle")
         box.append(subtitle_label)
 
         preview_label = Gtk.Label(label=session.preview, xalign=0.0)
-        preview_label.add_css_class("nyx-session-preview")
+        preview_label.add_css_class("nyx-history-preview")
         preview_label.set_wrap(True)
         preview_label.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         box.append(preview_label)
 
         return box
 
-    def _on_row_selected(
-        self,
-        list_box: Gtk.ListBox,
-        row: Gtk.ListBoxRow | None,
-    ) -> None:
+    def _on_row_selected(self, list_box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         """Load the selected conversation into the panel main view."""
 
         del list_box
@@ -335,13 +435,11 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
             return
 
         state = self.controller.state_for_session(session_id)
-        session = self.controller.get_session(session_id)
-        if state is None or session is None:
+        if state is None:
             return
-
         self._apply_state(state)
         self._set_prompt_text("")
-        self._move_cursor_to_end(self.prompt_view)
+        self._move_cursor_to_end()
 
     def _apply_state(self, state: OverlayViewState) -> None:
         """Render a controller-provided state into the GTK widgets."""
@@ -350,26 +448,16 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         if state.model_name:
             provider_text += f"  {state.model_name}"
         self.provider_label.set_label(provider_text)
-
         token_text = "—" if state.token_count is None else str(state.token_count)
-        self.tokens_label.set_label(f"[tokens: {token_text}]")
-
-        window_text = "[⊞]"
-        tooltip = None
-        if state.active_window is not None and state.active_window.app_name:
-            window_text = f"[⊞ {state.active_window.app_name}]"
-            tooltip = state.active_window.window_title or state.active_window.app_name
-        self.window_label.set_label(window_text)
-        self.window_label.set_tooltip_text(tooltip)
-
+        self.tokens_label.set_label(f"tokens: {token_text}")
         self.degraded_label.set_visible(state.degraded)
-        self.yolo_label.set_visible(state.yolo)
-        if state.busy:
-            self.spinner.start()
-        else:
-            self.spinner.stop()
 
-        render_markdown_to_buffer(self.response_view.get_buffer(), state.response_text)
+        window_text = "current window"
+        if state.active_window is not None and state.active_window.app_name:
+            window_text = state.active_window.app_name
+            self.window_label.set_tooltip_text(state.active_window.window_title or state.active_window.app_name)
+        self.window_label.set_label(window_text)
+        render_markdown_to_buffer(self.response_view.get_buffer(), state.conversation_text)
         self._last_response_text = state.response_text
 
     def _on_window_key_pressed(
@@ -382,26 +470,19 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         """Handle panel-level shortcuts such as close, copy, and mode toggle."""
 
         del controller, keycode
-
         if keyval == Gdk.KEY_Escape:
             self.close()
             self.get_application().quit()
             return True
-
         if state & Gdk.ModifierType.CONTROL_MASK and keyval in {Gdk.KEY_h, Gdk.KEY_H}:
-            application = self.get_application()
-            if application is not None and hasattr(application, "show_launcher"):
-                application.show_launcher()
+            self._on_compact_clicked(None)
             return True
-
         if state & Gdk.ModifierType.CONTROL_MASK and keyval == Gdk.KEY_comma:
             self._show_sidebar_page("settings")
             return True
-
         if state & Gdk.ModifierType.CONTROL_MASK and keyval in {Gdk.KEY_c, Gdk.KEY_C}:
             self._copy_last_response()
             return True
-
         return False
 
     def _on_prompt_key_pressed(
@@ -414,26 +495,27 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         """Handle panel prompt submission and history navigation."""
 
         del controller, keycode
-
         if keyval == Gdk.KEY_Return and not (state & Gdk.ModifierType.SHIFT_MASK):
-            prompt = self._get_prompt_text().strip()
-            if prompt and self._submission_task is None:
-                self._submission_task = asyncio.create_task(self._submit_prompt(prompt))
+            self._submit_current_prompt()
             return True
-
         if keyval == Gdk.KEY_Up and not (state & Gdk.ModifierType.SHIFT_MASK):
             previous = self.controller.previous_history()
             if previous is not None:
                 self._set_prompt_text(previous)
-                self._move_cursor_to_end(self.prompt_view)
+                self._move_cursor_to_end()
                 return True
-
         if keyval == Gdk.KEY_Down and not (state & Gdk.ModifierType.SHIFT_MASK):
             self._set_prompt_text(self.controller.next_history())
-            self._move_cursor_to_end(self.prompt_view)
+            self._move_cursor_to_end()
             return True
-
         return False
+
+    def _submit_current_prompt(self) -> None:
+        """Submit the current composer contents when possible."""
+
+        prompt = self._get_prompt_text().strip()
+        if prompt and self._submission_task is None:
+            self._submission_task = asyncio.create_task(self._submit_prompt(prompt))
 
     async def _submit_prompt(self, prompt: str) -> None:
         """Submit the current prompt asynchronously and update the panel."""
@@ -446,6 +528,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
             self.logger.exception("Panel prompt submission failed.")
             state = OverlayViewState(
                 response_text=f"Nyx panel failed to submit prompt: {exc}",
+                conversation_text=f"## Assistant\n\nNyx panel failed to submit prompt: {exc}",
                 provider_name=self.config.models.default,
                 model_name=None,
                 token_count=None,
@@ -463,9 +546,9 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self._apply_state(state)
         self._select_session_row(state.selected_session_id)
         self._set_prompt_text("")
-        self.prompt_view.grab_focus()
+        self.focus_prompt()
 
-    def _select_session_row(self, session_id: int | None) -> None:
+    def _select_session_row(self, session_id: str | None) -> None:
         """Select the visible row matching the supplied conversation id."""
 
         if session_id is None:
@@ -499,14 +582,14 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         clipboard = display.get_clipboard()
         clipboard.set_content(Gdk.ContentProvider.new_for_value(self._last_response_text))
 
-    def _move_cursor_to_end(self, text_view: Gtk.TextView) -> None:
-        """Move the insertion cursor to the end of a ``Gtk.TextView`` buffer."""
+    def _move_cursor_to_end(self) -> None:
+        """Move the insertion cursor to the end of the composer buffer."""
 
-        buffer = text_view.get_buffer()
+        buffer = self.prompt_view.get_buffer()
         end = buffer.get_end_iter()
         buffer.place_cursor(end)
 
-    def _on_new_conversation_clicked(self, button: Gtk.Button) -> None:
+    def _on_new_conversation_clicked(self, button: Gtk.Button | None) -> None:
         """Clear the current selection and start a new thread."""
 
         del button
@@ -517,11 +600,65 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self._show_sidebar_page("history")
         self.focus_prompt()
 
+    def _on_archive_clicked(self, button: Gtk.Button) -> None:
+        """Archive the currently selected conversation."""
+
+        del button
+        if self.controller.selected_session_id is None:
+            return
+        state = self.controller.archive_session(self.controller.selected_session_id)
+        self._rebuild_session_list()
+        self._apply_state(state)
+
+    def _on_delete_clicked(self, button: Gtk.Button) -> None:
+        """Delete the currently selected conversation."""
+
+        del button
+        if self.controller.selected_session_id is None:
+            return
+        state = self.controller.delete_session(self.controller.selected_session_id)
+        self._rebuild_session_list()
+        self._apply_state(state)
+
     def _on_config_saved(self, new_config: NyxConfig) -> None:
         """Refresh local config references after the settings editor saves."""
 
         self.config = new_config
         self.controller.config = new_config
         application = self.get_application()
-        if application is not None and hasattr(application, "update_config"):
-            application.update_config(new_config)
+        if application is not None and hasattr(application, "apply_saved_config"):
+            application.apply_saved_config(new_config)
+
+    def _on_voice_clicked(self, button: Gtk.Button) -> None:
+        """Toggle live voice capture from the panel composer."""
+
+        del button
+        application = self.get_application()
+        if application is not None and hasattr(application, "toggle_voice_capture"):
+            application.toggle_voice_capture(self)
+
+    def _on_send_clicked(self, button: Gtk.Button) -> None:
+        """Submit the current composer text."""
+
+        del button
+        self._submit_current_prompt()
+
+    def _on_compact_clicked(self, button: Gtk.Button | None) -> None:
+        """Return to the compact popup view."""
+
+        del button
+        application = self.get_application()
+        if application is not None and hasattr(application, "show_launcher"):
+            application.show_launcher()
+
+    def _on_history_clicked(self, button: Gtk.Button) -> None:
+        """Show the history page in the left stack."""
+
+        del button
+        self._show_sidebar_page("history")
+
+    def _on_settings_clicked(self, button: Gtk.Button) -> None:
+        """Show the settings page in the left stack."""
+
+        del button
+        self._show_sidebar_page("settings")

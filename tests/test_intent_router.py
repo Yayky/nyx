@@ -12,6 +12,7 @@ from nyx.bridges.stub import StubBridge
 from nyx.config import load_config
 from nyx.intent_router import IntentRequest, IntentRouter
 from nyx.providers.base import ProviderError, ProviderQueryResult
+from nyx.providers.base import ProviderMessage
 
 
 @dataclass
@@ -21,6 +22,7 @@ class FakeRegistry:
     result: ProviderQueryResult | None = None
     error: ProviderError | None = None
     seen_preferred_provider: str | None = None
+    seen_messages: list[ProviderMessage] | None = None
 
     async def query(
         self,
@@ -47,6 +49,22 @@ class FakeRegistry:
 
         del image_path
         return await self.query(prompt, context, preferred_provider_name)
+
+    async def query_messages(
+        self,
+        messages: list[ProviderMessage],
+        context: dict[str, Any],
+        preferred_provider_name: str | None = None,
+    ) -> ProviderQueryResult:
+        """Record structured-message requests and return the configured result."""
+
+        del context
+        self.seen_messages = list(messages)
+        self.seen_preferred_provider = preferred_provider_name
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None
+        return self.result
 
 
 @dataclass
@@ -290,6 +308,45 @@ async def test_router_prefers_model_override(tmp_path) -> None:
 
     assert result.used_model == "codex-cli"
     assert registry.seen_preferred_provider == "codex-cli"
+
+
+@pytest.mark.anyio
+async def test_router_uses_query_messages_for_conversation_context(tmp_path) -> None:
+    """Structured conversation messages should route through the message-aware path."""
+
+    config = load_config(tmp_path / "missing.toml")
+    registry = FakeRegistry(
+        result=ProviderQueryResult(
+            provider_name="codex-cli",
+            provider_type="subprocess-cli",
+            model_name=None,
+            text="provider answer",
+            fallback_used=False,
+        )
+    )
+    router = IntentRouter(
+        config=config,
+        bridge=StubBridge("Linux"),
+        provider_registry=registry,
+        logger=logging.getLogger("test"),
+    )
+
+    result = await router.route(
+        IntentRequest(
+            text="follow up",
+            model_override="codex-cli",
+            yolo=False,
+            conversation_messages=[
+                ProviderMessage(role="user", content="first"),
+                ProviderMessage(role="assistant", content="second"),
+                ProviderMessage(role="user", content="follow up"),
+            ],
+        )
+    )
+
+    assert result.response_text == "provider answer"
+    assert registry.seen_messages is not None
+    assert [message.role for message in registry.seen_messages] == ["user", "assistant", "user"]
 
 
 @pytest.mark.anyio

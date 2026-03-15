@@ -6,11 +6,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import logging
 import textwrap
+from uuid import uuid4
 
 from nyx.bridges.base import SystemBridge, WindowInfo
 from nyx.config import NyxConfig
 from nyx.daemon import NyxDaemon
 from nyx.intent_router import IntentRequest, IntentResult
+from nyx.providers.base import ProviderMessage
 from nyx.ui.history_store import (
     OverlayHistorySnapshot,
     OverlayHistoryStore,
@@ -18,12 +20,16 @@ from nyx.ui.history_store import (
     StoredConversationMessage,
 )
 
+_MAX_ROUTED_HISTORY_MESSAGES = 8
+_MAX_ROUTED_HISTORY_CHARS = 12_000
+
 
 @dataclass(slots=True)
 class OverlayViewState:
     """UI state rendered by Nyx overlay windows."""
 
-    response_text: str = "Nyx launcher ready."
+    response_text: str = "Nyx is ready."
+    conversation_text: str = "## Assistant\n\nNyx is ready."
     provider_name: str = "idle"
     model_name: str | None = None
     token_count: int | None = None
@@ -31,7 +37,7 @@ class OverlayViewState:
     yolo: bool = False
     busy: bool = False
     active_window: WindowInfo | None = None
-    selected_session_id: int | None = None
+    selected_session_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -50,11 +56,14 @@ class ConversationMessage:
 class SessionRecord:
     """One persisted overlay conversation shown in the history sidebar."""
 
-    session_id: int
+    session_id: str
     created_at: datetime
     updated_at: datetime
     active_window: WindowInfo | None
     degraded: bool
+    summary: str | None
+    archived: bool
+    pinned: bool
     messages: list[ConversationMessage]
 
     @property
@@ -73,7 +82,7 @@ class SessionRecord:
         for message in reversed(self.messages):
             if message.role == "assistant":
                 return message.text
-        return ""
+        return "Nyx is ready."
 
     @property
     def provider_name(self) -> str:
@@ -108,7 +117,7 @@ class SessionRecord:
 
         first_prompt = next((message.text for message in self.messages if message.role == "user"), "")
         if not first_prompt:
-            return f"Conversation {self.session_id}"
+            return "Untitled conversation"
         return textwrap.shorten(" ".join(first_prompt.split()), width=46, placeholder="…")
 
     @property
@@ -125,8 +134,6 @@ class SessionRecord:
         """Return a one-line preview from the latest assistant or user message."""
 
         latest = self.response_text or self.prompt
-        if not latest:
-            return "No conversation preview"
         return textwrap.shorten(" ".join(latest.split()), width=88, placeholder="…")
 
     @property
@@ -135,6 +142,7 @@ class SessionRecord:
 
         parts = [
             self.title,
+            self.summary or "",
             self.provider_name,
             self.model_name or "",
             self.active_window.app_name if self.active_window else "",
@@ -144,16 +152,14 @@ class SessionRecord:
         return " ".join(part for part in parts if part).casefold()
 
     @property
-    def transcript_text(self) -> str:
-        """Return a readable conversation transcript for the main response pane."""
+    def document_markdown(self) -> str:
+        """Return the conversation as a markdown-like document transcript."""
 
-        lines: list[str] = []
+        blocks: list[str] = []
         for message in self.messages:
-            speaker = "You" if message.role == "user" else "Nyx"
-            lines.append(f"{speaker}:")
-            lines.append(message.text)
-            lines.append("")
-        return "\n".join(lines).strip() or "Nyx launcher ready."
+            speaker = "User" if message.role == "user" else "Assistant"
+            blocks.append(f"## {speaker}\n\n{message.text}")
+        return "\n\n".join(blocks).strip() or "## Assistant\n\nNyx is ready."
 
 
 @dataclass(slots=True)
@@ -167,9 +173,8 @@ class OverlaySessionController:
     history_store: OverlayHistoryStore = field(default_factory=OverlayHistoryStore)
     history: list[str] = field(default_factory=list)
     sessions: list[SessionRecord] = field(default_factory=list)
-    selected_session_id: int | None = None
+    selected_session_id: str | None = None
     _history_index: int | None = None
-    _next_session_id: int = 1
 
     def __post_init__(self) -> None:
         """Load persisted conversations into memory for the overlay."""
@@ -179,22 +184,22 @@ class OverlaySessionController:
         self.sessions = [self._session_from_stored(conversation) for conversation in snapshot.conversations]
         if self.sessions:
             self.selected_session_id = self.sessions[-1].session_id
-            self._next_session_id = self.sessions[-1].session_id + 1
 
     async def submit_prompt(self, prompt: str, model_override: str | None = None) -> OverlayViewState:
         """Submit a prompt, append it to the current conversation, and persist it."""
 
         active_window = await self._safe_active_window()
         target_session = self._selected_session_for_submission()
-        routed_prompt = prompt
+        conversation_messages = None
         if target_session is not None:
-            routed_prompt = self._build_threaded_prompt(target_session, prompt)
+            conversation_messages = self._build_conversation_messages(target_session, prompt)
 
         result = await self.daemon.handle_prompt(
             IntentRequest(
-                text=routed_prompt,
+                text=prompt,
                 model_override=model_override,
                 yolo=self.config.system.yolo,
+                conversation_messages=conversation_messages,
             )
         )
         self._record_history(prompt)
@@ -232,7 +237,8 @@ class OverlaySessionController:
             if selected is not None:
                 return selected
         return OverlayViewState(
-            response_text="Nyx launcher ready.",
+            response_text="Nyx is ready.",
+            conversation_text="## Assistant\n\nNyx is ready.",
             provider_name=self.config.models.default,
             model_name=None,
             token_count=None,
@@ -247,8 +253,14 @@ class OverlaySessionController:
         """Return the temporary state shown while a prompt is in flight."""
 
         selected = self.get_session(self.selected_session_id) if self.selected_session_id is not None else None
+        pending_doc = (
+            f"{selected.document_markdown}\n\n## Assistant\n\nThinking…"
+            if selected is not None
+            else "## Assistant\n\nThinking…"
+        )
         return OverlayViewState(
-            response_text=(selected.transcript_text + "\n\nNyx: \nThinking…").strip() if selected else "Thinking…",
+            response_text="Thinking…",
+            conversation_text=pending_doc,
             provider_name=selected.provider_name if selected else self.config.models.default,
             model_name=selected.model_name if selected else None,
             token_count=selected.token_count if selected else None,
@@ -263,15 +275,16 @@ class OverlaySessionController:
         """Return conversations filtered by the given search query."""
 
         normalized = query.strip().casefold()
+        candidates = [session for session in self.sessions if not session.archived]
         if not normalized:
-            return list(reversed(self.sessions))
+            return list(reversed(candidates))
         return [
             session
-            for session in reversed(self.sessions)
+            for session in reversed(candidates)
             if normalized in session.search_text
         ]
 
-    def get_session(self, session_id: int | None) -> SessionRecord | None:
+    def get_session(self, session_id: str | None) -> SessionRecord | None:
         """Return a conversation record by identifier, if present."""
 
         if session_id is None:
@@ -281,7 +294,7 @@ class OverlaySessionController:
                 return session
         return None
 
-    def state_for_session(self, session_id: int) -> OverlayViewState | None:
+    def state_for_session(self, session_id: str) -> OverlayViewState | None:
         """Return an overlay state reconstructed from a stored conversation."""
 
         session = self.get_session(session_id)
@@ -294,6 +307,27 @@ class OverlaySessionController:
         """Clear the selected conversation so the next prompt starts a new thread."""
 
         self.selected_session_id = None
+        return self.idle_state()
+
+    def delete_session(self, session_id: str) -> OverlayViewState:
+        """Delete a conversation and return the best next idle/selected state."""
+
+        self.sessions = [session for session in self.sessions if session.session_id != session_id]
+        if self.selected_session_id == session_id:
+            self.selected_session_id = self.sessions[-1].session_id if self.sessions else None
+        self._persist()
+        return self.idle_state()
+
+    def archive_session(self, session_id: str) -> OverlayViewState:
+        """Archive a conversation and move selection to the latest active thread."""
+
+        session = self.get_session(session_id)
+        if session is not None:
+            session.archived = True
+        if self.selected_session_id == session_id:
+            active_sessions = [item for item in self.sessions if not item.archived]
+            self.selected_session_id = active_sessions[-1].session_id if active_sessions else None
+        self._persist()
         return self.idle_state()
 
     async def _safe_active_window(self) -> WindowInfo | None:
@@ -339,20 +373,27 @@ class OverlaySessionController:
         )
         if existing_session is None:
             record = SessionRecord(
-                session_id=self._next_session_id,
+                session_id=uuid4().hex,
                 created_at=now,
                 updated_at=now,
                 active_window=active_window,
                 degraded=result.degraded,
+                summary=None,
+                archived=False,
+                pinned=False,
                 messages=[user_message, assistant_message],
             )
-            self._next_session_id += 1
             self.sessions.append(record)
         else:
             existing_session.messages.extend([user_message, assistant_message])
             existing_session.updated_at = now
             existing_session.active_window = active_window
             existing_session.degraded = existing_session.degraded or result.degraded
+            existing_session.summary = textwrap.shorten(
+                " ".join(existing_session.response_text.split()),
+                width=140,
+                placeholder="…",
+            )
             record = existing_session
 
         self.selected_session_id = record.session_id
@@ -362,7 +403,8 @@ class OverlaySessionController:
         """Map a stored conversation back into the view state used by GTK."""
 
         return OverlayViewState(
-            response_text=session.transcript_text,
+            response_text=session.response_text,
+            conversation_text=session.document_markdown,
             provider_name=session.provider_name,
             model_name=session.model_name,
             token_count=session.token_count,
@@ -373,22 +415,35 @@ class OverlaySessionController:
             selected_session_id=session.session_id,
         )
 
-    def _build_threaded_prompt(self, session: SessionRecord, prompt: str) -> str:
-        """Create a lightweight thread-context prompt for follow-up questions."""
+    def _build_conversation_messages(
+        self,
+        session: SessionRecord,
+        prompt: str,
+    ) -> list[ProviderMessage]:
+        """Build a bounded structured conversation window for provider routing."""
 
-        transcript_lines = ["Continue this existing Nyx conversation."]
-        for message in session.messages[-6:]:
-            speaker = "User" if message.role == "user" else "Assistant"
-            transcript_lines.append(f"{speaker}: {message.text}")
-        transcript_lines.append(f"User: {prompt}")
-        return "\n".join(transcript_lines)
+        routed_messages: list[ProviderMessage] = []
+        remaining_chars = _MAX_ROUTED_HISTORY_CHARS
+        for message in reversed(session.messages[-_MAX_ROUTED_HISTORY_MESSAGES:]):
+            text = message.text.strip()
+            if not text:
+                continue
+            if remaining_chars <= 0:
+                break
+            if len(text) > remaining_chars:
+                text = text[-remaining_chars:]
+            routed_messages.append(ProviderMessage(role=message.role, content=text))
+            remaining_chars -= len(text)
+        routed_messages.reverse()
+        routed_messages.append(ProviderMessage(role="user", content=prompt.strip()))
+        return routed_messages
 
     def _persist(self) -> None:
         """Persist prompt history and current conversations to local storage."""
 
         snapshot = OverlayHistorySnapshot(
-            prompt_history=list(self.history[-200:]),
-            conversations=[self._stored_from_session(session) for session in self.sessions[-200:]],
+            prompt_history=list(self.history),
+            conversations=[self._stored_from_session(session) for session in self.sessions],
         )
         self.history_store.save(snapshot)
 
@@ -401,6 +456,9 @@ class OverlaySessionController:
             updated_at=conversation.updated_at,
             active_window=conversation.active_window,
             degraded=conversation.degraded,
+            summary=conversation.summary,
+            archived=conversation.archived,
+            pinned=conversation.pinned,
             messages=[
                 ConversationMessage(
                     role=message.role,
@@ -423,6 +481,11 @@ class OverlaySessionController:
             updated_at=session.updated_at,
             active_window=session.active_window,
             degraded=session.degraded,
+            summary=session.summary,
+            provider_name=session.provider_name,
+            model_name=session.model_name,
+            archived=session.archived,
+            pinned=session.pinned,
             messages=[
                 StoredConversationMessage(
                     role=message.role,
