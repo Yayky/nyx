@@ -1,9 +1,9 @@
-# Example Nyx configuration.
+# Example Nyx configuration
 #
-# Copy this to:
+# Copy this file to:
 #   ~/.config/nyx/config.toml
 #
-# Then adjust providers and optional integrations for your machine.
+# Then adjust the sections you actually want to use.
 
 [models]
 default = "codex-cli"
@@ -30,9 +30,21 @@ model = "gemma3:4b"
 host = "http://localhost:11434"
 vision_timeout_seconds = 180
 
+#[[models.providers]]
+#name = "openai"
+#type = "openai"
+#model = "gpt-4o"
+#api_key_env = "OPENAI_API_KEY"
+
+#[[models.providers]]
+#name = "anthropic"
+#type = "anthropic"
+#model = "claude-sonnet-4-5"
+#api_key_env = "ANTHROPIC_API_KEY"
+
 [voice]
 enabled = true
-whisper_binary = "/usr/bin/whisper-cli"
+whisper_binary = "/path/to/whisper-cli"
 whisper_model = "/path/to/ggml-small.bin"
 
 [notes]
@@ -80,9 +92,34 @@ overlay_anchor = "top-center"
 overlay_monitor = "focused"
 launcher_width = 700
 launcher_height = 300
-panel_width = 400
+panel_width = 1056
+panel_height = 720
+panel_history_width = 280
+panel_chat_width = 690
+panel_conversation_ratio = 0.76
 font = "monospace 11"
 summon_hotkey = "Super+A"
+theme_mode = "wallpaper"
+wallpaper_path = "/absolute/path/to/your/wallpaper.png"
+backdrop_enabled = true
+backdrop_blur_radius = 18
+backdrop_dim_opacity = 0.58
+
+[ui.history]
+backend = "sqlite"
+
+[ui.theme]
+text_primary = ""
+text_muted = ""
+accent_cool = ""
+accent_warm = ""
+border_primary = ""
+border_soft = ""
+bg_outer = ""
+bg_panel = ""
+bg_card = ""
+bg_card_alt = ""
+shadow_color = ""
 
 [system]
 confirm_destructive = true

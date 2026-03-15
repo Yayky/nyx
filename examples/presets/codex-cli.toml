@@ -1,0 +1,26 @@
+[models]
+default = "codex-cli"
+fallback = []
+
+[[models.providers]]
+name = "codex-cli"
+type = "subprocess-cli"
+binary = "codex"
+args = ["exec", "--json", "-"]
+image_args = ["--image", "{image_path}"]
+timeout_seconds = 60
+
+[voice]
+enabled = false
+
+[ui]
+overlay_monitor = "focused"
+launcher_width = 700
+launcher_height = 300
+panel_height = 700
+panel_history_width = 260
+panel_chat_width = 680
+panel_conversation_ratio = 0.76
+summon_hotkey = "Super+A"
+theme_mode = "wallpaper"
+wallpaper_path = ""

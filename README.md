@@ -1,80 +1,646 @@
 # Nyx
 
-Nyx is a local-first, context-aware AI assistant daemon for Linux desktops.
+Nyx is a local-first AI assistant daemon for Linux desktops.
 
-It is designed around a persistent local runtime instead of a browser chat tab:
-Nyx can reason over your project notes, route requests across local and cloud
-models, inspect desktop context through a strict bridge layer, and expose both a
-CLI and a GTK overlay UI.
+It is built around a persistent local runtime instead of a browser tab: Nyx can
+route prompts across local and cloud models, inspect desktop context through a
+strict bridge layer, manage notes/tasks/macros/skills, and expose both a
+one-shot CLI and a GTK overlay UI.
 
-## What Nyx Does
+![Nyx demo](PreviewVid/demo.gif)
 
-Nyx currently includes:
+## Table Of Contents
 
-- provider routing across Ollama, OpenAI-compatible HTTP backends, and CLI tools like Codex CLI
-- Hyprland/Wayland bridge integration for window state, screenshots, commands, notifications, and microphone recording
-- GTK launcher and panel UI with history, search, and multi-monitor-aware placement
-- persistent local conversation threads in the overlay history sidebar
-- project-aware notes, tasks, memory, macros, and skills
-- local RAG with ChromaDB and Ollama embeddings
-- screen-context analysis with vision-capable providers
+- [What Nyx Is](#what-nyx-is)
+- [Current Status](#current-status)
+- [What Nyx Can Do](#what-nyx-can-do)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Presets](#presets)
+- [Configuration](#configuration)
+- [UI And Hotkeys](#ui-and-hotkeys)
+- [Feature Setup Guides](#feature-setup-guides)
+- [Where Nyx Stores Things](#where-nyx-stores-things)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Limitations](#limitations)
+
+## What Nyx Is
+
+Nyx is designed for a desktop workflow where the assistant is part of the
+machine, not a web session.
+
+The project is currently:
+
+- Linux-first
+- Wayland-first
+- Hyprland-only for the active system bridge
+- local-first for state, notes, history, and desktop integrations
+
+Nyx is a good fit if you want:
+
+- a background assistant you can summon with a compositor shortcut
+- local notes, memory, tasks, macros, and skills
+- model routing across Ollama, HTTP APIs, and CLI tools like Codex CLI
+- a GTK overlay that keeps conversation history locally
+- a setup you can inspect and edit with plain files
+
+## Current Status
+
+Nyx is usable now, but it is still alpha software.
+
+Implemented so far:
+
+- CLI mode
+- daemon mode
+- managed overlay UI
+- local overlay conversation history
+- notes, tasks, memory, macros, skills
+- screen context and system bridge integrations
+- web lookup, calendar, sync, and monitor modules
+- local speech-to-text with `whisper.cpp`
+
+Not done yet:
+
+- non-Hyprland bridge support
+- Windows support
+- polished public release flow
+
+License note:
+
+- there is currently no license file in the repo
+- until one is added, assume normal copyright applies
+
+## What Nyx Can Do
+
+Current capabilities include:
+
+- provider routing across:
+  - Ollama
+  - Anthropic
+  - OpenAI
+  - OpenAI-compatible backends
+  - subprocess CLI providers such as Codex CLI
+- Hyprland bridge integration for:
+  - active window information
+  - screenshots
+  - notifications
+  - command execution
+  - microphone recording
+- GTK launcher and sidebar UI with:
+  - persistent local conversation threads
+  - sidebar history
+  - settings editor
+  - multi-monitor placement
+- project-aware features:
+  - notes
+  - tasks
+  - memory
+  - macros
+  - skills
+- local RAG using ChromaDB + Ollama embeddings
+- screen-context analysis through vision-capable providers
 - Git/GitHub, calendar, system monitor, and live web lookup modules
-- cross-device sync helpers for Git-managed notes/memory and Syncthing-managed RAG indexes
-- local speech-to-text through `whisper.cpp`
-
-## Status
-
-Nyx has been built through Phase 22 of the architecture plan.
-
-This repository is usable now, but it is still pre-release software. The
-Windows port and the public-release phase are not complete yet.
+- cross-device sync helpers for Git and Syncthing workflows
+- voice input through local `whisper.cpp`
 
 ## Requirements
 
-Core runtime requirements:
+### Core runtime
 
 - Python 3.11+
-- Linux desktop environment with Wayland
-- Hyprland for the current bridge implementation
+- Linux desktop running Wayland
+- Hyprland for the current desktop bridge
 
-GTK launcher requirements on Arch Linux:
+### Python package dependencies
+
+Nyx installs these through `pip install -e .`:
+
+- `chromadb`
+- `google-api-python-client`
+- `google-auth-httplib2`
+- `google-auth-oauthlib`
+- `httpx`
+- `Pillow`
+- `psutil`
+
+### GTK launcher requirements
+
+On Arch Linux:
 
 ```bash
 sudo pacman -S python-gobject gtk4 gtk4-layer-shell
 ```
 
-Voice input requirements:
+Important:
 
-- `whisper.cpp` CLI
-- a local ggml Whisper model file
+- `gi` comes from the system `python-gobject` package
+- if you want the GTK launcher inside a virtualenv, use `--system-site-packages`
+
+### Voice input requirements
+
+- `whisper.cpp` CLI binary
+- a local Whisper ggml model file
 - `pw-record` for live microphone capture
-- `ffmpeg` if you want Nyx to accept non-WAV audio files
+- `ffmpeg` if you want non-WAV audio input
 
-Optional service dependencies:
+### Optional integrations
 
-- Ollama for local text, embeddings, and optional local vision models
-- SearXNG and/or Brave Search API for live web lookups
-- Google Calendar OAuth or ADC / `gcloud` for calendar access
-- `gh` for GitHub issue/PR flows
+- Ollama for local text / embeddings / local vision
+- SearXNG and optionally Brave Search API for web lookup
+- Google Calendar credentials or ADC for calendar support
+- `gh` for GitHub workflows
 - Git and optionally Syncthing for cross-device sync
 
-## Installation
+## Install
 
-### 1. Create the environment
+### 1. Clone the repo
 
 ```bash
-git clone <your-repo-url> nyx
+git clone https://github.com/Yayky/nyx.git
 cd nyx
+```
+
+### 2. Create the environment
+
+If you only want CLI mode:
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
 
-### 2. If you want the GTK launcher on Arch
+If you want the GTK launcher on Arch Linux or another distro where PyGObject is
+installed system-wide:
 
-Because `gi` comes from the system `python-gobject` package, a normal virtual
-environment will not see it. Recreate the environment with system site
-packages:
+```bash
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+### 3. Create the config file
+
+Nyx reads config from:
+
+```text
+~/.config/nyx/config.toml
+```
+
+Start from the example file:
+
+```bash
+mkdir -p ~/.config/nyx
+cp examples/config.example.toml ~/.config/nyx/config.toml
+```
+
+### 4. Choose a preset
+
+Preset files live in:
+
+```text
+examples/presets/
+```
+
+Available starter presets:
+
+- [codex-cli.toml](examples/presets/codex-cli.toml)
+- [local-ollama.toml](examples/presets/local-ollama.toml)
+- [desktop-full.toml](examples/presets/desktop-full.toml)
+
+You can either:
+
+1. copy one preset directly to `~/.config/nyx/config.toml`, or
+2. use `examples/config.example.toml` and copy the sections you want
+
+### 5. Install optional external tools
+
+Typical desktop setup:
+
+```bash
+sudo pacman -S ffmpeg git github-cli
+```
+
+Then add the tools you actually want to use:
+
+- Ollama
+- `whisper.cpp`
+- SearXNG
+- `gcloud`
+- Syncthing
+
+## Quick Start
+
+### One-shot CLI
+
+```bash
+source .venv/bin/activate
+python3 -m nyx "hello"
+```
+
+### Override the provider for one prompt
+
+```bash
+python3 -m nyx --model codex-cli "summarize this project"
+```
+
+### Start the overlay directly
+
+```bash
+python3 -m nyx --launcher
+```
+
+### Run Nyx as a background daemon
+
+```bash
+python3 -m nyx --daemon
+```
+
+Then toggle the managed overlay:
+
+```bash
+python3 -m nyx --toggle-ui
+```
+
+### Voice input from microphone
+
+```bash
+python3 -m nyx --voice
+```
+
+### Voice input from a file
+
+```bash
+python3 -m nyx --voice-file /path/to/input.wav
+```
+
+### CLI help
+
+```bash
+python3 -m nyx --help
+```
+
+## Presets
+
+These presets are meant as practical starting points, not final configs.
+
+### 1. Codex CLI only
+
+Use:
+
+- [codex-cli.toml](examples/presets/codex-cli.toml)
+
+Best if you want:
+
+- the fastest setup
+- a CLI-first workflow
+- no Ollama requirement
+
+### 2. Local Ollama first
+
+Use:
+
+- [local-ollama.toml](examples/presets/local-ollama.toml)
+
+Best if you want:
+
+- local text generation by default
+- Codex CLI as a fallback
+- local embeddings for RAG
+
+### 3. Full desktop setup
+
+Use:
+
+- [desktop-full.toml](examples/presets/desktop-full.toml)
+
+Best if you want:
+
+- overlay UI
+- voice input
+- web lookup
+- calendar access
+- sync helpers
+- desktop-oriented defaults
+
+## Configuration
+
+### Main config file
+
+Nyx reads and writes:
+
+```text
+~/.config/nyx/config.toml
+```
+
+You can change settings in two ways:
+
+- edit `~/.config/nyx/config.toml` directly
+- use the sidebar settings UI with `Ctrl+,`
+
+### Example config
+
+The public example lives here:
+
+- [config.example.toml](examples/config.example.toml)
+
+### Config sections
+
+#### `[models]`
+
+Controls:
+
+- default provider
+- fallback chain
+- provider definitions
+
+Supported provider types:
+
+- `ollama`
+- `anthropic`
+- `openai`
+- `openai-compat`
+- `subprocess-cli`
+
+Typical places to change:
+
+- switch the default model/provider
+- add API-backed providers
+- add or remove CLI providers
+- change fallback order
+
+#### `[voice]`
+
+Controls:
+
+- whether voice is enabled
+- `whisper.cpp` binary path
+- Whisper model path
+
+Typical places to change:
+
+- fully disable voice input
+- point Nyx at your `whisper-cli`
+- move to a larger Whisper model for better transcription quality
+
+#### `[notes]`
+
+Controls:
+
+- notes root
+- inbox filename
+- projects directory
+- automatic note sorting
+
+#### `[rag]`
+
+Controls:
+
+- local ChromaDB path
+- embedding model
+
+#### `[web]`
+
+Controls:
+
+- SearXNG URL
+- Brave API key
+- fallback timeout
+
+#### `[calendar]`
+
+Controls:
+
+- provider
+- auth mode
+- credentials path
+- default calendar
+- multiple calendar ids
+- include-all-calendars mode
+
+Supported auth modes:
+
+- `auto`
+- `adc`
+- `desktop-oauth`
+
+#### `[sync]`
+
+Controls:
+
+- notes repo path
+- memory mirror path
+- Syncthing config/snippet paths
+- Syncthing folder id
+
+#### `[ui]`
+
+Controls:
+
+- overlay monitor selection
+- popup width / height
+- sidebar height
+- sidebar inner widths
+- conversation/composer height split
+- summon hotkey label
+- font
+- wallpaper path
+- backdrop settings
+- theme overrides
+
+Important:
+
+- sidebar width is derived from `panel_history_width` and `panel_chat_width`
+- `panel_width` is preserved for compatibility and rendered from those values
+
+#### `[ui.theme]`
+
+Optional manual overrides for:
+
+- `text_primary`
+- `text_muted`
+- `accent_cool`
+- `accent_warm`
+- `border_primary`
+- `border_soft`
+- `bg_outer`
+- `bg_panel`
+- `bg_card`
+- `bg_card_alt`
+- `shadow_color`
+
+If left blank, Nyx will try to derive them from your wallpaper.
+
+#### `[system]`
+
+Controls:
+
+- destructive action confirmation
+- `yolo`
+- screenshot temp path
+
+## UI And Hotkeys
+
+### Keyboard controls
+
+- `Enter` submits
+- `Shift+Enter` inserts a newline
+- `Ctrl+H` toggles panel/history mode
+- `Ctrl+,` opens settings
+- `Ctrl+C` copies the last response
+- `Escape` closes the overlay process
+
+### Hyprland summon setup
+
+Run Nyx in the background:
+
+```text
+exec-once = /absolute/path/to/your/.venv/bin/nyx --daemon
+```
+
+Bind a summon key:
+
+```text
+bind = SUPER, A, exec, /absolute/path/to/your/.venv/bin/nyx --toggle-ui
+```
+
+Then reload Hyprland:
+
+```bash
+hyprctl reload
+```
+
+### Sidebar sizing
+
+The current sidebar sizing controls are:
+
+- `panel_height`
+- `panel_history_width`
+- `panel_chat_width`
+- `panel_conversation_ratio`
+
+These are available in:
+
+- `~/.config/nyx/config.toml`
+- the sidebar settings UI
+
+## Feature Setup Guides
+
+### Voice / `whisper.cpp`
+
+1. Install or build `whisper.cpp`
+2. Download a ggml Whisper model
+3. Set:
+
+```toml
+[voice]
+enabled = true
+whisper_binary = "/full/path/to/whisper-cli"
+whisper_model = "/full/path/to/ggml-small.bin"
+```
+
+Then test:
+
+```bash
+python3 -m nyx --voice
+```
+
+### Google Calendar
+
+Nyx supports two routes:
+
+- desktop OAuth client JSON
+- ADC through `gcloud`
+
+Desktop OAuth files:
+
+- credentials: `~/.config/nyx/google_credentials.json`
+- token: `~/.config/nyx/google_token.json`
+
+ADC example:
+
+```bash
+gcloud auth application-default login \
+  --client-id-file ~/.config/nyx/google_credentials.json \
+  --scopes https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/calendar
+```
+
+Then use:
+
+```toml
+[calendar]
+provider = "google"
+auth_mode = "auto"
+include_all_calendars = true
+```
+
+### Web lookup
+
+Set SearXNG:
+
+```toml
+[web]
+searxng_url = "http://localhost:8080"
+```
+
+Optional Brave fallback:
+
+```toml
+[web]
+brave_api_key = "YOUR_BRAVE_API_KEY"
+fallback_timeout_seconds = 3
+```
+
+### Cross-device sync
+
+Nyx intentionally splits sync:
+
+- Git for `~/notes/` and mirrored memory
+- Syncthing for the local RAG index
+
+Git side:
+
+- initialize `~/notes` as a repo
+- push it to your remote
+- use Nyx sync commands afterward
+
+Syncthing side:
+
+- share `~/.local/share/nyx/rag`
+- use folder id `nyx-rag`
+
+## Where Nyx Stores Things
+
+### Config and runtime data
+
+- config: `~/.config/nyx/config.toml`
+- calendar credentials: `~/.config/nyx/google_credentials.json`
+- calendar token: `~/.config/nyx/google_token.json`
+- overlay history: `~/.local/state/nyx/conversations.db`
+- RAG data: `~/.local/share/nyx/rag`
+
+### Notes and project data
+
+- notes root: `~/notes/`
+- inbox: `~/notes/inbox.md`
+- projects: `~/notes/projects/<project>/`
+- mirrored memory: `~/notes/memory.md`
+
+### User-extensible code
+
+- global macros: `~/.config/nyx/macros/`
+- project macros: `~/notes/projects/<project>/macros/`
+- skills: `~/.config/nyx/skills/`
+
+## Troubleshooting
+
+### `ModuleNotFoundError: No module named 'gi'`
+
+Your virtualenv probably cannot see the system PyGObject packages.
+
+Recreate it like this:
 
 ```bash
 rm -rf .venv
@@ -83,167 +649,28 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-### 3. Create the config directory
+### `whisper.cpp binary not found`
 
-```bash
-mkdir -p ~/.config/nyx
+Set both values in `~/.config/nyx/config.toml`:
+
+```toml
+[voice]
+enabled = true
+whisper_binary = "/full/path/to/whisper-cli"
+whisper_model = "/full/path/to/ggml-small.bin"
 ```
 
-Nyx reads its config from:
+### Sidebar size is not what you expect
 
-```text
-~/.config/nyx/config.toml
-```
+The sidebar width is controlled by:
 
-A public example config is included here:
+- `panel_history_width`
+- `panel_chat_width`
 
-[config.example.toml](/home/yayky/projects/AIAssistnat/examples/config.example.toml)
+The total width is derived from those two values. The vertical split on the
+right side is controlled by:
 
-## Quick Start
-
-Run one-shot CLI mode:
-
-```bash
-python3 -m nyx "hello"
-```
-
-Run the GTK launcher:
-
-```bash
-python3 -m nyx --launcher
-```
-
-Run the daemon and toggle the managed overlay on demand:
-
-```bash
-python3 -m nyx --daemon
-python3 -m nyx --toggle-ui
-```
-
-Run live microphone input:
-
-```bash
-python3 -m nyx --voice
-```
-
-Transcribe one existing audio file:
-
-```bash
-python3 -m nyx --voice-file /path/to/input.wav
-```
-
-## UI Controls
-
-Launcher and panel controls currently implemented:
-
-- `Enter` submits
-- `Shift+Enter` inserts a newline
-- `Ctrl+H` toggles panel/history mode
-- `Ctrl+,` opens the settings sidebar
-- `Ctrl+C` copies the last response
-- `Escape` closes the launcher process
-
-The panel now stores conversation threads locally at:
-
-```text
-~/.local/state/nyx/conversations.json
-```
-
-That history survives launcher restarts and is searchable from the sidebar.
-
-### Summon hotkey on Hyprland
-
-Nyx's configurable summon command is:
-
-```bash
-python3 -m nyx --toggle-ui
-```
-
-If the daemon is running in the background, bind it in `hyprland.conf`, for example:
-
-```text
-bind = SUPER, A, exec, /path/to/your/venv/bin/python -m nyx --toggle-ui
-```
-
-Typical startup on login is:
-
-```text
-exec-once = /path/to/your/venv/bin/python -m nyx --daemon
-```
-
-The desired key combination lives in `[ui].summon_hotkey`, and the settings sidebar exposes it directly, but Hyprland still owns the actual compositor bind.
-
-## Configuration Overview
-
-Important config areas:
-
-- `[models]` controls your default provider, fallback chain, and all configured providers
-- `[voice]` controls `whisper.cpp` and lets you fully disable voice input
-- `[notes]` controls the notes tree and project layout
-- `[rag]` controls the ChromaDB path and embedding model
-- `[web]` configures SearXNG and Brave fallback
-- `[calendar]` configures Google Calendar access
-- `[sync]` configures Git-managed notes sync and Syncthing-managed RAG sync
-- `[ui]` controls overlay sizing and monitor placement
-- `[system]` controls destructive-command confirmation and YOLO mode
-
-### Multi-monitor placement
-
-`[ui].overlay_monitor` currently supports:
-
-- `focused`
-- `primary`
-- one-based numeric monitor indices like `1` or `2`
-- named outputs such as `eDP-2`
-
-### Cross-device sync
-
-Nyx splits sync by data type:
-
-- Git syncs `~/notes/` and a mirrored copy of global memory at `~/notes/memory.md`
-- Syncthing syncs the local RAG index at `~/.local/share/nyx/rag`
-
-Nyx does not sync the whole `~/.config/nyx/` tree across devices. That
-directory contains machine-local and sensitive files such as OAuth tokens and
-credentials.
-
-## Optional Integrations
-
-### Ollama
-
-Nyx can use Ollama for:
-
-- local text models
-- local embeddings for RAG
-- local vision models
-
-### Google Calendar
-
-Nyx supports:
-
-- desktop OAuth client flow
-- ADC / `gcloud auth application-default login`
-
-### Web lookup
-
-Nyx uses:
-
-- SearXNG as the primary backend
-- Brave Search API as fallback
-
-## Project Layout
-
-Nyx stores user data in plain files where practical:
-
-```text
-~/.config/nyx/
-~/notes/
-~/notes/projects/<project>/
-~/.local/share/nyx/rag/
-```
-
-That means notes, tasks, macros, and much of the assistant context stay easy to
-inspect, edit, and sync.
+- `panel_conversation_ratio`
 
 ## Development
 
@@ -253,25 +680,20 @@ Run tests:
 python3 -m pytest
 ```
 
-Bytecode / import sanity check:
+Bytecode/import check:
 
 ```bash
 python3 -m compileall nyx tests
 ```
 
-## Current Scope And Limits
+Current package metadata is in:
 
-- Linux-first
-- Hyprland/Wayland bridge only for now
-- no public release packaging yet
-- no Windows bridge/UI yet
-- some integrations still depend on local services or external credentials
+- [pyproject.toml](pyproject.toml)
 
-## Notes
+## Limitations
 
-- Local user configuration lives under `~/.config/nyx/`
-- Project notes live under `~/notes/projects/`
-- Cross-device sync expects your notes directory to already be a Git repository if you want Nyx to automate commit/pull/push
-- The GTK launcher requires system PyGObject bindings (`gi`), `gtk4`, and `gtk4-layer-shell`
-- Voice input requires a local `whisper.cpp` CLI plus a ggml model file configured under `[voice]`
-- Live microphone input on Linux uses PipeWire `pw-record`; set `[voice].enabled = false` to disable all Nyx voice input
+- Hyprland is the only implemented desktop bridge right now
+- the launcher depends on system GTK/PyGObject packages
+- Nyx is still alpha and the UI is still being actively refined
+- some integrations require external services that Nyx does not install for you
+- a public license has not been chosen yet

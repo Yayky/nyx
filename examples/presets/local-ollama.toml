@@ -1,0 +1,39 @@
+[models]
+default = "ollama-local"
+fallback = ["codex-cli"]
+
+[[models.providers]]
+name = "ollama-local"
+type = "ollama"
+model = "qwen2.5:7b"
+host = "http://localhost:11434"
+
+[[models.providers]]
+name = "ollama-vision"
+type = "ollama"
+model = "gemma3:4b"
+host = "http://localhost:11434"
+vision_timeout_seconds = 180
+
+[[models.providers]]
+name = "codex-cli"
+type = "subprocess-cli"
+binary = "codex"
+args = ["exec", "--json", "-"]
+image_args = ["--image", "{image_path}"]
+timeout_seconds = 60
+
+[rag]
+embed_model = "nomic-embed-text"
+
+[ui]
+overlay_monitor = "focused"
+launcher_width = 700
+launcher_height = 300
+panel_height = 720
+panel_history_width = 280
+panel_chat_width = 720
+panel_conversation_ratio = 0.76
+summon_hotkey = "Super+A"
+theme_mode = "wallpaper"
+wallpaper_path = ""

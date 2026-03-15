@@ -40,3 +40,6 @@ Thumbs.db
 # Local project planning docs not needed in distributed repo
 #documentation.md
 #progress.md
+
+# Local raw preview exports; keep the lighter GIFs instead
+PreviewVid/*.mp4
