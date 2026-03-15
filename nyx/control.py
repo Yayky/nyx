@@ -1,10 +1,4 @@
-"""Daemon-side overlay control IPC for Nyx.
-
-The Nyx daemon exposes a small local Unix-socket control surface so compositor
-shortcuts can summon or dismiss the GTK overlay without spinning up a full UI
-process on every login. The socket only accepts local commands and is meant to
-be driven by ``nyx --toggle-ui`` or similar helper invocations.
-"""
+"""Daemon-side overlay control IPC for Nyx."""
 
 from __future__ import annotations
 
@@ -26,14 +20,22 @@ class NyxControlError(RuntimeError):
 class OverlayControlService:
     """Expose summon/dismiss controls for the overlay through a Unix socket."""
 
-    def __init__(self, logger: logging.Logger | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        reload_callback=None,
+        logger: logging.Logger | None = None,
+    ) -> None:
         """Initialize the control service with no active server or UI process."""
 
         self.logger = logger or logging.getLogger("nyx.control")
         self.socket_path = CONTROL_SOCKET_PATH
+        self.reload_callback = reload_callback
         self._server: asyncio.AbstractServer | None = None
         self._launcher_process: asyncio.subprocess.Process | None = None
         self._launcher_watch_task: asyncio.Task[None] | None = None
+        self._process_lock = asyncio.Lock()
+        self._expected_exit_pid: int | None = None
 
     async def start(self) -> None:
         """Start listening for local control commands on the Unix socket."""
@@ -51,22 +53,16 @@ class OverlayControlService:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
-        if self._launcher_watch_task is not None:
-            self._launcher_watch_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._launcher_watch_task
-            self._launcher_watch_task = None
         await self.hide_ui()
+        watch_task = self._launcher_watch_task
+        if watch_task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await watch_task
         if self.socket_path.exists():
             self.socket_path.unlink()
 
     async def toggle_ui(self) -> bool:
-        """Toggle the managed launcher child process on or off.
-
-        Returns:
-            ``True`` when the launcher is visible after toggling, otherwise
-            ``False``.
-        """
+        """Toggle the managed launcher child process on or off."""
 
         if self.is_ui_visible():
             await self.hide_ui()
@@ -77,33 +73,45 @@ class OverlayControlService:
     async def show_ui(self) -> None:
         """Launch the GTK overlay process when it is not already visible."""
 
-        if self.is_ui_visible():
-            return
-        self._launcher_process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "nyx",
-            "--launcher",
-        )
-        self._launcher_watch_task = asyncio.create_task(self._watch_launcher())
-        self.logger.info("Started managed Nyx launcher process pid=%s", self._launcher_process.pid)
+        async with self._process_lock:
+            if self.is_ui_visible():
+                return
+            if self._launcher_process is not None and self._launcher_process.returncode is not None:
+                self._launcher_process = None
+            self._expected_exit_pid = None
+            self._launcher_process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "nyx",
+                "--launcher",
+            )
+            self._launcher_watch_task = asyncio.create_task(self._watch_launcher(self._launcher_process))
+            self.logger.info("Started managed Nyx launcher process pid=%s", self._launcher_process.pid)
 
     async def hide_ui(self) -> None:
         """Terminate the managed launcher process when it is running."""
 
-        if not self.is_ui_visible():
-            self._launcher_process = None
-            return
-        assert self._launcher_process is not None
-        process = self._launcher_process
-        process.terminate()
+        watch_task: asyncio.Task[None] | None = None
+        async with self._process_lock:
+            process = self._launcher_process
+            if process is None:
+                return
+            if process.returncode is not None:
+                self._launcher_process = None
+                return
+            self._expected_exit_pid = process.pid
+            process.terminate()
+            watch_task = self._launcher_watch_task
+
         try:
-            await asyncio.wait_for(process.wait(), timeout=2.0)
+            await asyncio.wait_for(process.wait(), timeout=1.0)
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
-        self._launcher_process = None
-        self.logger.info("Stopped managed Nyx launcher process.")
+        finally:
+            if watch_task is not None:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await watch_task
 
     def is_ui_visible(self) -> bool:
         """Return whether the managed overlay child process is still alive."""
@@ -131,6 +139,11 @@ class OverlayControlService:
                 visible = False
             elif command == "status":
                 visible = self.is_ui_visible()
+            elif command == "reload_config":
+                if self.reload_callback is None:
+                    raise NyxControlError("Nyx daemon reload callback is not available.")
+                await self.reload_callback()
+                visible = self.is_ui_visible()
             else:
                 raise NyxControlError(f"Unsupported control command: {command or 'empty'}")
             response = {"ok": True, "visible": visible}
@@ -141,27 +154,29 @@ class OverlayControlService:
         writer.close()
         await writer.wait_closed()
 
-    async def _watch_launcher(self) -> None:
+    async def _watch_launcher(self, process: asyncio.subprocess.Process) -> None:
         """Watch the managed launcher child process until it exits."""
 
-        if self._launcher_process is None:
-            return
-        process = self._launcher_process
-        try:
-            await process.wait()
-        finally:
+        returncode = await process.wait()
+        async with self._process_lock:
+            expected = self._expected_exit_pid == process.pid
             if self._launcher_process is process:
                 self._launcher_process = None
-            self._launcher_watch_task = None
+            if self._launcher_watch_task is not None and self._launcher_watch_task is asyncio.current_task():
+                self._launcher_watch_task = None
+            if expected:
+                self._expected_exit_pid = None
+
+        if returncode == 0:
+            self.logger.info("Managed Nyx launcher exited cleanly.")
+        elif expected:
+            self.logger.info("Managed Nyx launcher terminated with code %s.", returncode)
+        else:
+            self.logger.warning("Managed Nyx launcher exited unexpectedly with code %s.", returncode)
 
 
 async def send_control_command(command: str) -> dict[str, Any]:
-    """Send one control command to the running Nyx daemon.
-
-    Raises:
-        NyxControlError: No daemon socket exists or the daemon rejected the
-            command.
-    """
+    """Send one control command to the running Nyx daemon."""
 
     if not CONTROL_SOCKET_PATH.exists():
         raise NyxControlError(

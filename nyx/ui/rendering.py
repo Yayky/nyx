@@ -38,6 +38,20 @@ _CODE_KEYWORDS = {
     "while",
 }
 
+_MARKDOWN_THEME = {
+    "heading": "#87BBB5",
+    "inline_code": "#B47A56",
+    "code_keyword": "#74A8A2",
+}
+
+
+def configure_markdown_theme(*, heading: str, inline_code: str, code_keyword: str) -> None:
+    """Update markdown tag colors to match the active Nyx theme."""
+
+    _MARKDOWN_THEME["heading"] = heading
+    _MARKDOWN_THEME["inline_code"] = inline_code
+    _MARKDOWN_THEME["code_keyword"] = code_keyword
+
 
 def render_markdown_to_buffer(buffer: Gtk.TextBuffer, text: str) -> None:
     """Render lightweight markdown with basic code highlighting into a buffer."""
@@ -85,18 +99,41 @@ def _ensure_tags(buffer: Gtk.TextBuffer) -> None:
 
     tag_table = buffer.get_tag_table()
     definitions = {
-        "heading-1": {"weight": Pango.Weight.BOLD, "scale": 1.25, "pixels_above_lines": 8},
-        "heading-2": {"weight": Pango.Weight.BOLD, "scale": 1.15, "pixels_above_lines": 6},
-        "heading-3": {"weight": Pango.Weight.BOLD, "scale": 1.08, "pixels_above_lines": 4},
+        "heading-1": {
+            "weight": Pango.Weight.BOLD,
+            "scale": 1.25,
+            "pixels_above_lines": 8,
+            "foreground": _MARKDOWN_THEME["heading"],
+        },
+        "heading-2": {
+            "weight": Pango.Weight.BOLD,
+            "scale": 1.15,
+            "pixels_above_lines": 6,
+            "foreground": _MARKDOWN_THEME["heading"],
+        },
+        "heading-3": {
+            "weight": Pango.Weight.BOLD,
+            "scale": 1.08,
+            "pixels_above_lines": 4,
+            "foreground": _MARKDOWN_THEME["heading"],
+        },
         "bullet": {"weight": Pango.Weight.BOLD},
-        "inline-code": {"family": "monospace", "foreground": "#ba4a00"},
+        "inline-code": {"family": "monospace", "foreground": _MARKDOWN_THEME["inline_code"]},
         "code": {"family": "monospace", "left_margin": 12, "right_margin": 12},
-        "code-keyword": {"family": "monospace", "weight": Pango.Weight.BOLD, "foreground": "#005f87"},
+        "code-keyword": {
+            "family": "monospace",
+            "weight": Pango.Weight.BOLD,
+            "foreground": _MARKDOWN_THEME["code_keyword"],
+        },
     }
 
     for name, properties in definitions.items():
-        if tag_table.lookup(name) is None:
+        existing = tag_table.lookup(name)
+        if existing is None:
             buffer.create_tag(name, **properties)
+            continue
+        for key, value in properties.items():
+            existing.set_property(key, value)
 
 
 def _heading_level(line: str) -> int:

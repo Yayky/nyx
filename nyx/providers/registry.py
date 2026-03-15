@@ -16,6 +16,7 @@ from nyx.config import NyxConfig, ProviderConfig
 from nyx.providers.base import (
     ModelProvider,
     ProviderError,
+    ProviderMessage,
     ProviderQueryError,
     ProviderQueryResult,
     UnknownProviderError,
@@ -86,6 +87,79 @@ class ProviderRegistry:
 
             try:
                 text = await provider.query(prompt=prompt, context=context)
+            except ProviderError as exc:
+                availability[provider_name] = False
+                failures[provider_name] = str(exc)
+                self.logger.warning("Provider '%s' failed: %s", provider_name, exc)
+                if preferred_provider_name:
+                    raise
+                continue
+            except Exception as exc:
+                availability[provider_name] = False
+                failures[provider_name] = str(exc)
+                self.logger.exception("Unexpected provider error from '%s'.", provider_name)
+                if preferred_provider_name:
+                    raise ProviderQueryError(str(exc)) from exc
+                continue
+
+            degraded, degraded_reason = await self._degraded_state_for_result(
+                selected_provider_name=provider.name,
+                selected_provider=provider,
+                availability=availability,
+                preferred_provider_name=preferred_provider_name,
+                preferred_tiers=preferred_tiers,
+            )
+            return ProviderQueryResult(
+                provider_name=provider.name,
+                provider_type=provider.type,
+                model_name=provider.model_name,
+                text=text,
+                fallback_used=not preferred_provider_name and index > 0,
+                degraded=degraded,
+                degraded_reason=degraded_reason,
+                provider_tier=self._provider_tier(provider),
+            )
+
+        raise AllProvidersUnavailableError(failures)
+
+    async def query_messages(
+        self,
+        messages: list[ProviderMessage],
+        context: dict[str, Any],
+        preferred_provider_name: str | None = None,
+        preferred_tiers: tuple[str, ...] | None = None,
+    ) -> ProviderQueryResult:
+        """Query the selected provider or fallback chain with structured messages."""
+
+        provider_names = self._provider_chain(
+            preferred_provider_name=preferred_provider_name,
+            preferred_tiers=preferred_tiers,
+        )
+        failures: dict[str, str] = {}
+        availability: dict[str, bool] = {}
+
+        for index, provider_name in enumerate(provider_names):
+            try:
+                provider = self.get(provider_name)
+            except UnknownProviderError as exc:
+                failures[provider_name] = str(exc)
+                self.logger.warning("%s", exc)
+                if preferred_provider_name:
+                    raise
+                continue
+
+            provider_available = await provider.is_available()
+            availability[provider_name] = provider_available
+            if not provider_available:
+                reason = "provider unavailable"
+                failures[provider_name] = reason
+                self.logger.info("Skipping unavailable provider '%s'.", provider_name)
+                if preferred_provider_name:
+                    raise AllProvidersUnavailableError(failures)
+                continue
+
+            try:
+                text = await provider.query_messages(messages=messages, context=context)
             except ProviderError as exc:
                 availability[provider_name] = False
                 failures[provider_name] = str(exc)

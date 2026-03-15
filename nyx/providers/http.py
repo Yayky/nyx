@@ -19,6 +19,7 @@ import httpx
 from nyx.config import ProviderConfig
 from nyx.providers.base import (
     ModelProvider,
+    ProviderMessage,
     ProviderQueryError,
     ProviderUnavailableError,
 )
@@ -86,6 +87,47 @@ class OllamaProvider(ModelProvider):
             )
         return text.strip()
 
+    async def query_messages(
+        self,
+        messages: list[ProviderMessage],
+        context: dict[str, Any],
+    ) -> str:
+        """Generate text through Ollama's chat endpoint using structured messages."""
+
+        payload = {
+            "model": self.require_option("model"),
+            "messages": self._ollama_messages(messages, context),
+            "stream": False,
+        }
+        try:
+            async with self._client_factory(
+                base_url=self._base_url,
+                timeout=self._timeout_seconds,
+            ) as client:
+                response = await client.post("/api/chat", json=payload)
+        except httpx.TimeoutException as exc:
+            raise ProviderQueryError(
+                f"Ollama provider '{self.name}' timed out after {self._timeout_seconds:.0f} seconds."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderQueryError(
+                f"Ollama provider '{self.name}' request failed: {exc}"
+            ) from exc
+
+        self._raise_for_status(response, "Ollama request failed")
+        data = response.json()
+        message = data.get("message")
+        if not isinstance(message, dict):
+            raise ProviderQueryError(
+                f"Ollama provider '{self.name}' returned an unexpected payload."
+            )
+        text = message.get("content")
+        if not isinstance(text, str) or not text.strip():
+            raise ProviderQueryError(
+                f"Ollama provider '{self.name}' returned no response text."
+            )
+        return text.strip()
+
     @property
     def supports_vision(self) -> bool:
         """Ollama can accept image input when the configured model supports it."""
@@ -140,6 +182,27 @@ class OllamaProvider(ModelProvider):
                 f"Ollama provider '{self.name}' returned no vision response text."
             )
         return text.strip()
+
+    def _ollama_messages(
+        self,
+        messages: list[ProviderMessage],
+        context: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        """Build Ollama chat messages including optional serialized context."""
+
+        payload_messages: list[dict[str, str]] = []
+        if context:
+            payload_messages.append(
+                {
+                    "role": "system",
+                    "content": self.render_prompt("Use the provided context when answering.", context),
+                }
+            )
+        payload_messages.extend(
+            {"role": message.role, "content": message.content}
+            for message in messages
+        )
+        return payload_messages
 
     def _raise_for_status(self, response: httpx.Response, message: str) -> None:
         """Raise a provider error for unsuccessful HTTP responses."""
@@ -208,6 +271,56 @@ class AnthropicProvider(ModelProvider):
                 f"Anthropic provider '{self.name}' returned an unexpected payload."
             )
 
+        texts = [
+            item.get("text", "").strip()
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
+        text = "\n".join(part for part in texts if part)
+        if not text:
+            raise ProviderQueryError(
+                f"Anthropic provider '{self.name}' returned no text content."
+            )
+        return text
+
+    async def query_messages(
+        self,
+        messages: list[ProviderMessage],
+        context: dict[str, Any],
+    ) -> str:
+        """Submit structured messages to Anthropic's Messages API."""
+
+        api_key = self._api_key()
+        if not api_key:
+            raise ProviderUnavailableError(
+                f"Anthropic provider '{self.name}' is missing its API key."
+            )
+
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": self._ANTHROPIC_VERSION,
+        }
+        payload = {
+            "model": self.require_option("model"),
+            "max_tokens": 1024,
+            "messages": self._anthropic_messages(messages),
+        }
+        if context:
+            payload["system"] = self.render_prompt("Use the provided context when answering.", context)
+        async with self._client_factory(
+            base_url=self._base_url,
+            headers=headers,
+            timeout=60.0,
+        ) as client:
+            response = await client.post("/v1/messages", json=payload)
+
+        self._raise_for_status(response, "Anthropic request failed")
+        data = response.json()
+        content = data.get("content")
+        if not isinstance(content, list):
+            raise ProviderQueryError(
+                f"Anthropic provider '{self.name}' returned an unexpected payload."
+            )
         texts = [
             item.get("text", "").strip()
             for item in content
@@ -300,6 +413,21 @@ class AnthropicProvider(ModelProvider):
         env_name = self.require_option("api_key_env")
         return os.environ.get(env_name) if isinstance(env_name, str) else None
 
+    def _anthropic_messages(self, messages: list[ProviderMessage]) -> list[dict[str, str]]:
+        """Build Anthropic-compatible message payloads."""
+
+        payload_messages: list[dict[str, str]] = []
+        for message in messages:
+            if message.role == "system":
+                continue
+            payload_messages.append(
+                {
+                    "role": message.role,
+                    "content": message.content,
+                }
+            )
+        return payload_messages or [{"role": "user", "content": ""}]
+
     def _raise_for_status(self, response: httpx.Response, message: str) -> None:
         """Raise a provider error for unsuccessful HTTP responses."""
 
@@ -342,6 +470,28 @@ class OpenAICompatibleProvider(ModelProvider):
                     "content": self.render_prompt(prompt, context),
                 }
             ],
+        }
+        async with self._client_factory(
+            base_url=self._base_url,
+            headers=headers,
+            timeout=60.0,
+        ) as client:
+            response = await client.post("/chat/completions", json=payload)
+
+        self._raise_for_status(response, "OpenAI-compatible request failed")
+        return _extract_openai_message_text(response.json(), provider_name=self.name)
+
+    async def query_messages(
+        self,
+        messages: list[ProviderMessage],
+        context: dict[str, Any],
+    ) -> str:
+        """Query an OpenAI-compatible chat endpoint with structured messages."""
+
+        headers = self._build_headers()
+        payload = {
+            "model": self.require_option("model"),
+            "messages": self._openai_messages(messages, context),
         }
         async with self._client_factory(
             base_url=self._base_url,
@@ -415,6 +565,27 @@ class OpenAICompatibleProvider(ModelProvider):
             headers["Authorization"] = f"Bearer {api_key}"
         return headers
 
+    def _openai_messages(
+        self,
+        messages: list[ProviderMessage],
+        context: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        """Build chat-completion messages from structured provider messages."""
+
+        payload_messages = [
+            {"role": message.role, "content": message.content}
+            for message in messages
+        ]
+        if context:
+            payload_messages.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": self.render_prompt("Use the provided context when answering.", context),
+                },
+            )
+        return payload_messages
+
     def _raise_for_status(self, response: httpx.Response, message: str) -> None:
         """Raise a provider error for unsuccessful HTTP responses."""
 
@@ -457,6 +628,19 @@ class OpenAIProvider(OpenAICompatibleProvider):
                 f"OpenAI provider '{self.name}' is missing its API key."
             )
         return await super().query(prompt, context)
+
+    async def query_messages(
+        self,
+        messages: list[ProviderMessage],
+        context: dict[str, Any],
+    ) -> str:
+        """Require an API key before delegating to the shared message flow."""
+
+        if not self._api_key():
+            raise ProviderUnavailableError(
+                f"OpenAI provider '{self.name}' is missing its API key."
+            )
+        return await super().query_messages(messages, context)
 
 
 def _extract_openai_message_text(payload: dict[str, Any], provider_name: str) -> str:

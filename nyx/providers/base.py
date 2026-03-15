@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from nyx.config import ProviderConfig
 
@@ -34,6 +34,14 @@ class ProviderQueryError(ProviderError):
 
 class UnknownProviderError(ProviderError):
     """Raised when a configured provider name cannot be resolved."""
+
+
+@dataclass(slots=True)
+class ProviderMessage:
+    """One structured conversation message routed to a provider."""
+
+    role: Literal["system", "user", "assistant"]
+    content: str
 
 
 @dataclass(slots=True)
@@ -87,6 +95,15 @@ class ModelProvider(ABC):
     async def query(self, prompt: str, context: dict[str, Any]) -> str:
         """Submit a prompt plus context and return the provider's text output."""
 
+    async def query_messages(
+        self,
+        messages: list[ProviderMessage],
+        context: dict[str, Any],
+    ) -> str:
+        """Submit structured conversation messages to the provider."""
+
+        return await self.query(self.render_messages_prompt(messages, context), {})
+
     async def query_with_image(
         self,
         prompt: str,
@@ -118,6 +135,29 @@ class ModelProvider(ABC):
 
         rendered_context = json.dumps(context, indent=2, sort_keys=True, default=str)
         return f"Context:\n{rendered_context}\n\nUser request:\n{prompt}"
+
+    def render_messages_prompt(
+        self,
+        messages: list[ProviderMessage],
+        context: dict[str, Any],
+    ) -> str:
+        """Render structured messages into a stable transcript fallback."""
+
+        transcript_lines = [
+            "Conversation context follows. Answer the latest user message."
+        ]
+        if context:
+            rendered_context = json.dumps(context, indent=2, sort_keys=True, default=str)
+            transcript_lines.extend(["", "Context:", rendered_context, ""])
+
+        for message in messages:
+            speaker = {
+                "system": "System",
+                "user": "User",
+                "assistant": "Assistant",
+            }[message.role]
+            transcript_lines.append(f"{speaker}: {message.content}")
+        return "\n".join(transcript_lines).strip()
 
     def require_option(self, key: str) -> Any:
         """Return a required provider option or raise a config error."""

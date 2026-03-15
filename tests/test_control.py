@@ -41,3 +41,28 @@ async def test_overlay_control_service_handles_status_command(tmp_path: Path, mo
         await service.stop()
 
     assert response == {"ok": True, "visible": False}
+
+
+@pytest.mark.anyio
+async def test_overlay_control_service_handles_reload_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control service should invoke the registered config reload callback."""
+
+    socket_path = tmp_path / "control.sock"
+    monkeypatch.setattr(control, "CONTROL_SOCKET_PATH", socket_path)
+    called = {"value": False}
+
+    async def reload_callback() -> None:
+        called["value"] = True
+
+    service = control.OverlayControlService(reload_callback=reload_callback)
+    await service.start()
+    try:
+        response = await control.send_control_command("reload_config")
+    finally:
+        await service.stop()
+
+    assert response == {"ok": True, "visible": False}
+    assert called["value"] is True
