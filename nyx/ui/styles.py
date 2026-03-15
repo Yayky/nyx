@@ -43,7 +43,7 @@ window {
   background: alpha(__BG_OUTER__, 0.22);
   border-color: alpha(__BORDER_PRIMARY__, 0.22);
   box-shadow: 0 20px 72px alpha(__SHADOW_COLOR__, 0.42);
-  padding: 10px;
+  padding: 8px;
 }
 
 .nyx-history-pane,
@@ -140,7 +140,7 @@ searchentry {
 }
 
 .nyx-icon-button,
-.nyx-rail button {
+.nyx-panel-row-button {
   min-width: 42px;
   min-height: 42px;
   border-radius: 999px;
@@ -171,7 +171,15 @@ searchentry {
   background: alpha(__BG_PANEL__, 0.46);
   border: 1px solid alpha(__BORDER_PRIMARY__, 0.18);
   border-radius: 18px;
-  padding: 8px 8px;
+  padding: 6px 6px;
+}
+
+.nyx-rail button {
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 999px;
+  border: 1px solid alpha(__BORDER_PRIMARY__, 0.34);
+  background: alpha(__BG_CARD_ALT__, 0.36);
 }
 
 .nyx-rail button.active,
@@ -184,9 +192,17 @@ list row:selected .nyx-history-row {
 
 .nyx-history-row {
   border-radius: 14px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   background: alpha(__BG_CARD__, 0.18);
   border: 1px solid alpha(__BORDER_PRIMARY__, 0.10);
+}
+
+.nyx-history-delete {
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 999px;
+  border: 1px solid alpha(__BORDER_PRIMARY__, 0.26);
+  background: alpha(__BG_CARD_ALT__, 0.34);
 }
 
 .nyx-history-title {
@@ -205,8 +221,24 @@ list row:selected .nyx-history-row {
 
 .nyx-session-list,
 .nyx-session-list row,
+.nyx-session-list row:selected,
 scrolledwindow,
 viewport {
+  background: transparent;
+}
+
+textview.nyx-popup-response,
+textview.nyx-popup-response text,
+textview.nyx-popup-response border,
+textview.nyx-popup-input,
+textview.nyx-popup-input text,
+textview.nyx-popup-input border,
+textview.nyx-thread-view,
+textview.nyx-thread-view text,
+textview.nyx-thread-view border,
+textview.nyx-settings-text,
+textview.nyx-settings-text text,
+textview.nyx-settings-text border {
   background: transparent;
 }
 

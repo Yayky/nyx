@@ -46,7 +46,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         self.set_title("Nyx")
         self.set_default_size(
-            max(1160, self.config.ui.panel_width + 640),
+            max(1240, self.config.ui.panel_width + 720),
             max(720, self.config.ui.launcher_height + 380),
         )
         self.set_resizable(False)
@@ -81,7 +81,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.config = config
         self.theme = theme
         self.set_default_size(
-            max(1160, self.config.ui.panel_width + 640),
+            max(1240, self.config.ui.panel_width + 720),
             max(720, self.config.ui.launcher_height + 380),
         )
         self.queue_draw()
@@ -178,7 +178,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         rail.append(Gtk.Box(vexpand=True))
 
         left_stack_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        left_stack_box.set_size_request(max(320, self.config.ui.panel_width - 80), -1)
+        left_stack_box.set_size_request(max(260, self.config.ui.panel_width - 140), -1)
         stage.append(left_stack_box)
 
         self.sidebar_stack = Gtk.Stack()
@@ -206,19 +206,6 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.search_entry.set_placeholder_text("Search conversations")
         self.search_entry.connect("search-changed", self._on_search_changed)
         history_page.append(self.search_entry)
-
-        history_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        history_page.append(history_actions)
-
-        archive_button = Gtk.Button(label="Archive")
-        archive_button.add_css_class("nyx-button-soft")
-        archive_button.connect("clicked", self._on_archive_clicked)
-        history_actions.append(archive_button)
-
-        delete_button = Gtk.Button(label="Delete")
-        delete_button.add_css_class("nyx-button-soft")
-        delete_button.connect("clicked", self._on_delete_clicked)
-        history_actions.append(delete_button)
 
         sidebar_scroll = Gtk.ScrolledWindow()
         sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -357,6 +344,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         button = Gtk.Button()
         button.set_child(Gtk.Image.new_from_icon_name(icon_name))
         button.set_tooltip_text(tooltip)
+        _enable_instant_tooltip(button)
         button.connect("clicked", callback)
         return button
 
@@ -367,6 +355,7 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         button.add_css_class("nyx-icon-button")
         button.set_child(Gtk.Image.new_from_icon_name(icon_name))
         button.set_tooltip_text(tooltip)
+        _enable_instant_tooltip(button)
         button.connect("clicked", callback)
         return button
 
@@ -421,24 +410,39 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
     def _build_session_row(self, session: SessionRecord) -> Gtk.Widget:
         """Create the list-box row widget for one conversation."""
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.add_css_class("nyx-history-row")
+        shell = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        shell.add_css_class("nyx-history-row")
+        shell.add_css_class("nyx-history-row-shell")
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        content.set_hexpand(True)
+        content.add_css_class("nyx-history-row-main")
+        shell.append(content)
 
         title_label = Gtk.Label(label=session.title, xalign=0.0)
         title_label.add_css_class("nyx-history-title")
-        box.append(title_label)
+        content.append(title_label)
 
         subtitle_label = Gtk.Label(label=session.subtitle, xalign=0.0)
         subtitle_label.add_css_class("nyx-history-subtitle")
-        box.append(subtitle_label)
+        content.append(subtitle_label)
 
         preview_label = Gtk.Label(label=session.preview, xalign=0.0)
         preview_label.add_css_class("nyx-history-preview")
         preview_label.set_wrap(True)
         preview_label.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        box.append(preview_label)
+        content.append(preview_label)
 
-        return box
+        delete_button = Gtk.Button()
+        delete_button.add_css_class("nyx-history-delete")
+        delete_button.set_valign(Gtk.Align.START)
+        delete_button.set_child(Gtk.Image.new_from_icon_name("user-trash-symbolic"))
+        delete_button.set_tooltip_text("Delete conversation")
+        _enable_instant_tooltip(delete_button)
+        delete_button.connect("clicked", self._on_delete_session_clicked, session.session_id)
+        shell.append(delete_button)
+
+        return shell
 
     def _on_row_selected(self, list_box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         """Load the selected conversation into the panel main view."""
@@ -626,13 +630,11 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self._rebuild_session_list()
         self._apply_state(state)
 
-    def _on_delete_clicked(self, button: Gtk.Button) -> None:
-        """Delete the currently selected conversation."""
+    def _on_delete_session_clicked(self, button: Gtk.Button, session_id: str) -> None:
+        """Delete one conversation directly from its row action."""
 
         del button
-        if self.controller.selected_session_id is None:
-            return
-        state = self.controller.delete_session(self.controller.selected_session_id)
+        state = self.controller.delete_session(session_id)
         self._rebuild_session_list()
         self._apply_state(state)
 
@@ -678,3 +680,12 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         del button
         self._show_sidebar_page("settings")
+
+
+def _enable_instant_tooltip(widget: Gtk.Widget) -> None:
+    """Show the tooltip query immediately when the pointer enters."""
+
+    widget.set_has_tooltip(True)
+    motion = Gtk.EventControllerMotion()
+    motion.connect("enter", lambda controller, x, y: widget.trigger_tooltip_query())
+    widget.add_controller(motion)

@@ -231,6 +231,7 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         button.add_css_class("nyx-icon-button")
         button.set_child(Gtk.Image.new_from_icon_name(icon_name))
         button.set_tooltip_text(tooltip)
+        _enable_instant_tooltip(button)
         button.connect("clicked", callback)
         return button
 
@@ -641,3 +642,12 @@ def run_launcher(
         initial_prompt=initial_prompt,
     )
     return app.run(None)
+
+
+def _enable_instant_tooltip(widget: Gtk.Widget) -> None:
+    """Show the tooltip query immediately when the pointer enters."""
+
+    widget.set_has_tooltip(True)
+    motion = Gtk.EventControllerMotion()
+    motion.connect("enter", lambda controller, x, y: widget.trigger_tooltip_query())
+    widget.add_controller(motion)
