@@ -518,14 +518,25 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         preview_label.set_max_width_chars(28)
         content.append(preview_label)
 
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        actions.set_valign(Gtk.Align.START)
+        shell.append(actions)
+
+        rename_button = Gtk.Button()
+        rename_button.add_css_class("nyx-history-delete")
+        rename_button.set_child(Gtk.Image.new_from_icon_name("document-edit-symbolic"))
+        rename_button.set_tooltip_text("Rename conversation")
+        _enable_instant_tooltip(rename_button)
+        rename_button.connect("clicked", self._on_rename_session_clicked, session.session_id)
+        actions.append(rename_button)
+
         delete_button = Gtk.Button()
         delete_button.add_css_class("nyx-history-delete")
-        delete_button.set_valign(Gtk.Align.START)
         delete_button.set_child(Gtk.Image.new_from_icon_name("edit-delete-symbolic"))
         delete_button.set_tooltip_text("Delete conversation")
         _enable_instant_tooltip(delete_button)
         delete_button.connect("clicked", self._on_delete_session_clicked, session.session_id)
-        shell.append(delete_button)
+        actions.append(delete_button)
 
         return shell
 
@@ -729,6 +740,48 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         state = self.controller.delete_session(session_id)
         self._rebuild_session_list()
         self._apply_state(state)
+
+    def _on_rename_session_clicked(self, button: Gtk.Button, session_id: str) -> None:
+        """Open a small modal dialog to rename one conversation."""
+
+        del button
+        session = self.controller.get_session(session_id)
+        if session is None:
+            return
+
+        dialog = Gtk.Dialog(transient_for=self, modal=True)
+        dialog.set_title("Rename conversation")
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Rename", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+
+        content = dialog.get_content_area()
+        content.set_spacing(10)
+
+        prompt = Gtk.Label(label="Choose a new name for this conversation.", xalign=0.0)
+        prompt.set_wrap(True)
+        content.append(prompt)
+
+        entry = Gtk.Entry()
+        entry.set_text(session.title)
+        entry.set_activates_default(True)
+        content.append(entry)
+
+        def _on_response(rename_dialog: Gtk.Dialog, response: int) -> None:
+            try:
+                if response == Gtk.ResponseType.OK:
+                    state = self.controller.rename_session(session_id, entry.get_text())
+                    if state is not None:
+                        self._rebuild_session_list()
+                        self._apply_state(state)
+                        self._select_session_row(session_id)
+            finally:
+                rename_dialog.destroy()
+
+        dialog.connect("response", _on_response)
+        dialog.present()
+        entry.grab_focus()
+        entry.select_region(0, -1)
 
     def _on_config_saved(self, new_config: NyxConfig) -> None:
         """Refresh local config references after the settings editor saves."""

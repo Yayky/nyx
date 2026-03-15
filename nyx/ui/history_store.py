@@ -39,6 +39,7 @@ class StoredConversation:
     """A persisted conversation entry loaded by the overlay controller."""
 
     conversation_id: str
+    title: str
     created_at: datetime
     updated_at: datetime
     active_window: WindowInfo | None
@@ -138,7 +139,7 @@ class OverlayHistoryStore:
                     """,
                     (
                         conversation.conversation_id,
-                        _conversation_title(conversation),
+                        conversation.title or _conversation_title(conversation),
                         conversation.created_at.isoformat(),
                         conversation.updated_at.isoformat(),
                         int(conversation.archived),
@@ -281,6 +282,7 @@ class OverlayHistoryStore:
             """
             SELECT
                 id,
+                title,
                 created_at,
                 updated_at,
                 archived,
@@ -324,6 +326,7 @@ class OverlayHistoryStore:
             conversations.append(
                 StoredConversation(
                     conversation_id=str(row["id"]),
+                    title=_optional_string(row["title"]) or _conversation_title_from_messages(messages),
                     created_at=datetime.fromisoformat(str(row["created_at"])),
                     updated_at=datetime.fromisoformat(str(row["updated_at"])),
                     active_window=_window_from_columns(row),
@@ -410,6 +413,7 @@ def _parse_legacy_conversation(item: Any) -> StoredConversation | None:
     active_window = _parse_legacy_window(item.get("active_window"))
     return StoredConversation(
         conversation_id=conversation_id,
+        title=_conversation_title_from_messages(messages),
         created_at=created_at,
         updated_at=updated_at,
         active_window=active_window,
@@ -495,7 +499,13 @@ def _window_from_columns(row: sqlite3.Row) -> WindowInfo | None:
 def _conversation_title(conversation: StoredConversation) -> str:
     """Derive a stable thread title from the first user message."""
 
-    for message in conversation.messages:
+    return conversation.title or _conversation_title_from_messages(conversation.messages)
+
+
+def _conversation_title_from_messages(messages: list[StoredConversationMessage]) -> str:
+    """Derive a stable thread title from the first user message list."""
+
+    for message in messages:
         if message.role == "user" and message.text.strip():
             title = " ".join(message.text.split())
             return title[:120] if title else "Conversation"

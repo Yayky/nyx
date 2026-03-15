@@ -57,6 +57,7 @@ class SessionRecord:
     """One persisted overlay conversation shown in the history sidebar."""
 
     session_id: str
+    title: str
     created_at: datetime
     updated_at: datetime
     active_window: WindowInfo | None
@@ -110,15 +111,6 @@ class SessionRecord:
             if message.role == "assistant" and message.token_count is not None:
                 return message.token_count
         return None
-
-    @property
-    def title(self) -> str:
-        """Return a stable conversation title derived from the first prompt."""
-
-        first_prompt = next((message.text for message in self.messages if message.role == "user"), "")
-        if not first_prompt:
-            return "Untitled conversation"
-        return textwrap.shorten(" ".join(first_prompt.split()), width=46, placeholder="…")
 
     @property
     def subtitle(self) -> str:
@@ -318,6 +310,18 @@ class OverlaySessionController:
         self._persist()
         return self.idle_state()
 
+    def rename_session(self, session_id: str, title: str) -> OverlayViewState | None:
+        """Rename a conversation and persist the updated title."""
+
+        session = self.get_session(session_id)
+        normalized = " ".join(title.split()).strip()
+        if session is None or not normalized:
+            return None
+        session.title = normalized[:120]
+        session.updated_at = datetime.now().astimezone()
+        self._persist()
+        return self._state_from_session(session)
+
     def archive_session(self, session_id: str) -> OverlayViewState:
         """Archive a conversation and move selection to the latest active thread."""
 
@@ -374,6 +378,7 @@ class OverlaySessionController:
         if existing_session is None:
             record = SessionRecord(
                 session_id=uuid4().hex,
+                title=_derive_session_title(prompt),
                 created_at=now,
                 updated_at=now,
                 active_window=active_window,
@@ -452,6 +457,7 @@ class OverlaySessionController:
 
         return SessionRecord(
             session_id=conversation.conversation_id,
+            title=conversation.title,
             created_at=conversation.created_at,
             updated_at=conversation.updated_at,
             active_window=conversation.active_window,
@@ -477,6 +483,7 @@ class OverlaySessionController:
 
         return StoredConversation(
             conversation_id=session.session_id,
+            title=session.title,
             created_at=session.created_at,
             updated_at=session.updated_at,
             active_window=session.active_window,
@@ -498,3 +505,12 @@ class OverlaySessionController:
                 for message in session.messages
             ],
         )
+
+
+def _derive_session_title(prompt: str) -> str:
+    """Return a stable conversation title for newly created threads."""
+
+    normalized = " ".join(prompt.split()).strip()
+    if not normalized:
+        return "Untitled conversation"
+    return textwrap.shorten(normalized, width=46, placeholder="…")

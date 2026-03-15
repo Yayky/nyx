@@ -64,6 +64,7 @@ def test_overlay_history_store_preserves_all_saved_items(tmp_path: Path) -> None
         conversations=[
             StoredConversation(
                 conversation_id=f"thread-{index}",
+                title=f"Thread {index}",
                 created_at=now,
                 updated_at=now,
                 active_window=None,
@@ -96,3 +97,5 @@ def test_overlay_history_store_preserves_all_saved_items(tmp_path: Path) -> None
 
     assert len(restored.prompt_history) == 205
     assert len(restored.conversations) == 205
+    restored_by_id = {conversation.conversation_id: conversation for conversation in restored.conversations}
+    assert restored_by_id["thread-0"].title == "Thread 0"
