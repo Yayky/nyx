@@ -46,10 +46,12 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         self.set_title("Nyx")
         self.set_default_size(
-            self.config.ui.panel_width + self.config.ui.launcher_width + 180,
-            max(820, self.config.ui.launcher_height + 520),
+            max(1040, self.config.ui.panel_width + 560),
+            max(720, self.config.ui.launcher_height + 380),
         )
         self.set_resizable(False)
+        self.set_decorated(False)
+        self.add_css_class("nyx-window")
 
         self._configure_layer_shell()
         self._build_layout()
@@ -79,10 +81,10 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         self.config = config
         self.theme = theme
         self.set_default_size(
-            self.config.ui.panel_width + self.config.ui.launcher_width + 180,
-            max(820, self.config.ui.launcher_height + 520),
+            max(1040, self.config.ui.panel_width + 560),
+            max(720, self.config.ui.launcher_height + 380),
         )
-        self._apply_backdrop_picture()
+        self.queue_draw()
         self.settings_editor.config = config
         self.settings_editor._populate_controls_from_config()
         self.settings_editor._load_editor_text()
@@ -134,24 +136,16 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
     def _build_layout(self) -> None:
         """Create the sidebar and main panel widget tree."""
 
-        overlay = Gtk.Overlay()
-        self.set_child(overlay)
-
-        self.backdrop_picture = Gtk.Picture()
-        self.backdrop_picture.set_can_shrink(False)
-        self.backdrop_picture.set_content_fit(Gtk.ContentFit.COVER)
-        self.backdrop_picture.add_css_class("nyx-backdrop")
-        overlay.set_child(self.backdrop_picture)
-
         stage = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        stage.set_halign(Gtk.Align.START)
+        stage.set_valign(Gtk.Align.FILL)
         stage.set_margin_top(10)
         stage.set_margin_bottom(10)
         stage.set_margin_start(10)
         stage.set_margin_end(10)
         stage.add_css_class("nyx-stage")
         stage.add_css_class("nyx-stage-panel")
-        overlay.add_overlay(stage)
-        self._apply_backdrop_picture()
+        self.set_child(stage)
 
         rail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         rail.add_css_class("nyx-rail")
@@ -331,15 +325,6 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
         window_controller = Gtk.EventControllerKey()
         window_controller.connect("key-pressed", self._on_window_key_pressed)
         self.add_controller(window_controller)
-
-    def _apply_backdrop_picture(self) -> None:
-        """Refresh the panel backdrop image."""
-
-        if self.theme.backdrop_path is not None and self.theme.backdrop_path.exists():
-            self.backdrop_picture.set_filename(str(self.theme.backdrop_path))
-            self.backdrop_picture.set_visible(True)
-        else:
-            self.backdrop_picture.set_visible(False)
 
     def _rail_button(self, icon_name: str, callback) -> Gtk.Button:
         """Create one sidebar rail button with a symbolic icon."""

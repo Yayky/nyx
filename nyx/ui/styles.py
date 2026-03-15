@@ -12,6 +12,10 @@ from gi.repository import Gdk, Gtk
 from nyx.ui.theme import ResolvedTheme
 
 UI_CSS = """
+window.nyx-window {
+  background: transparent;
+}
+
 window {
   color: __TEXT_PRIMARY__;
   font: __NYX_FONT__;
@@ -19,6 +23,9 @@ window {
 
 .nyx-stage {
   background: alpha(__BG_OUTER__, 0.56);
+  background-image: __STAGE_BACKGROUND_IMAGE__;
+  background-size: cover;
+  background-position: center;
   border: 1px solid alpha(__BORDER_PRIMARY__, 0.54);
   border-radius: 24px;
   box-shadow: 0 28px 96px alpha(__SHADOW_COLOR__, 0.74);
@@ -30,12 +37,6 @@ window {
 
 .nyx-stage-panel {
   padding: 10px;
-}
-
-.nyx-backdrop {
-  background-size: cover;
-  background-position: center;
-  border-radius: 24px;
 }
 
 .nyx-history-pane,
@@ -242,6 +243,9 @@ def install_ui_css(theme: ResolvedTheme, font: str = "monospace 12") -> None:
 
     provider = Gtk.CssProvider()
     safe_font = _normalize_font_value(font).replace("\\", "\\\\").replace('"', '\\"')
+    backdrop_image = "none"
+    if theme.backdrop_path is not None and theme.backdrop_path.exists():
+        backdrop_image = f'linear-gradient(alpha({theme.colors["bg_outer"]}, 0.34), alpha({theme.colors["bg_outer"]}, 0.34)), url("{theme.backdrop_path.as_uri()}")'
     css = (
         UI_CSS.replace("__NYX_FONT__", safe_font)
         .replace("__TEXT_PRIMARY__", theme.colors["text_primary"])
@@ -255,6 +259,7 @@ def install_ui_css(theme: ResolvedTheme, font: str = "monospace 12") -> None:
         .replace("__BG_CARD__", theme.colors["bg_card"])
         .replace("__BG_CARD_ALT__", theme.colors["bg_card_alt"])
         .replace("__SHADOW_COLOR__", theme.colors["shadow_color"])
+        .replace("__STAGE_BACKGROUND_IMAGE__", backdrop_image)
     )
     provider.load_from_string(css)
     display = Gdk.Display.get_default()

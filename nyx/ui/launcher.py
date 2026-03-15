@@ -59,6 +59,8 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         self.set_default_size(config.ui.launcher_width, config.ui.launcher_height)
         self.set_resizable(False)
         self.set_hide_on_close(False)
+        self.set_decorated(False)
+        self.add_css_class("nyx-window")
 
         self._configure_layer_shell()
         self._build_layout()
@@ -78,7 +80,7 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         self.config = config
         self.theme = theme
         self.set_default_size(config.ui.launcher_width, config.ui.launcher_height)
-        self._apply_backdrop_picture()
+        self.queue_draw()
 
     def set_recording_state(self, recording: bool) -> None:
         """Reflect whether live microphone capture is active."""
@@ -124,24 +126,17 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
     def _build_layout(self) -> None:
         """Create the compact popup widget tree."""
 
-        overlay = Gtk.Overlay()
-        self.set_child(overlay)
-
-        self.backdrop_picture = Gtk.Picture()
-        self.backdrop_picture.set_can_shrink(False)
-        self.backdrop_picture.set_content_fit(Gtk.ContentFit.COVER)
-        self.backdrop_picture.add_css_class("nyx-backdrop")
-        overlay.set_child(self.backdrop_picture)
-
         stage = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        stage.set_halign(Gtk.Align.CENTER)
+        stage.set_valign(Gtk.Align.START)
+        stage.set_size_request(self.config.ui.launcher_width, self.config.ui.launcher_height)
         stage.set_margin_top(10)
         stage.set_margin_bottom(10)
         stage.set_margin_start(10)
         stage.set_margin_end(10)
         stage.add_css_class("nyx-stage")
         stage.add_css_class("nyx-stage-compact")
-        overlay.add_overlay(stage)
-        self._apply_backdrop_picture()
+        self.set_child(stage)
 
         self.status_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.status_row.add_css_class("nyx-status-strip")
@@ -220,15 +215,6 @@ class NyxLauncherWindow(Gtk.ApplicationWindow):
         window_controller = Gtk.EventControllerKey()
         window_controller.connect("key-pressed", self._on_window_key_pressed)
         self.add_controller(window_controller)
-
-    def _apply_backdrop_picture(self) -> None:
-        """Refresh the compact popup backdrop image."""
-
-        if self.theme.backdrop_path is not None and self.theme.backdrop_path.exists():
-            self.backdrop_picture.set_filename(str(self.theme.backdrop_path))
-            self.backdrop_picture.set_visible(True)
-        else:
-            self.backdrop_picture.set_visible(False)
 
     def _icon_button(self, icon_name: str, callback) -> Gtk.Button:
         """Create one icon-only action button."""
