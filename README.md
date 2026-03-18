@@ -266,6 +266,18 @@ Then toggle the managed overlay:
 python3 -m nyx --toggle-ui
 ```
 
+Show it explicitly without toggling:
+
+```bash
+python3 -m nyx --show-ui
+```
+
+Hide it explicitly:
+
+```bash
+python3 -m nyx --hide-ui
+```
+
 ### Voice input from microphone
 
 ```bash
@@ -500,6 +512,7 @@ Run Nyx in the background:
 
 ```text
 exec-once = /absolute/path/to/your/.venv/bin/nyx --daemon
+exec-once = /bin/sh -lc 'sleep 2; /absolute/path/to/your/.venv/bin/nyx --show-ui'
 ```
 
 Bind a summon key:

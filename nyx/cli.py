@@ -42,6 +42,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Toggle the managed Nyx overlay through the running daemon.",
     )
     mode_group.add_argument(
+        "--show-ui",
+        action="store_true",
+        help="Show the managed Nyx overlay through the running daemon.",
+    )
+    mode_group.add_argument(
+        "--hide-ui",
+        action="store_true",
+        help="Hide the managed Nyx overlay through the running daemon.",
+    )
+    mode_group.add_argument(
         "--voice",
         action="store_true",
         help="Record one microphone prompt, transcribe it locally, and route it once.",
@@ -76,20 +86,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_usage(sys.stderr)
         sys.stderr.write("Use either a text prompt, --voice, or --voice-file.\n")
         return 2
-    if args.voice_file and (args.daemon or args.launcher or args.toggle_ui):
+    if args.voice_file and (args.daemon or args.launcher or args.toggle_ui or args.show_ui or args.hide_ui):
         parser.print_usage(sys.stderr)
         sys.stderr.write("--voice-file is only supported for one-shot CLI mode.\n")
         return 2
-    if not args.daemon and not args.launcher and not args.toggle_ui and not args.voice and not prompt and not args.voice_file:
+    if (
+        not args.daemon
+        and not args.launcher
+        and not args.toggle_ui
+        and not args.show_ui
+        and not args.hide_ui
+        and not args.voice
+        and not prompt
+        and not args.voice_file
+    ):
         parser.print_usage(sys.stderr)
         sys.stderr.write(
-            "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher/--toggle-ui.\n"
+            "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher/--toggle-ui/--show-ui/--hide-ui.\n"
         )
         return 2
 
     try:
         if args.toggle_ui:
             asyncio.run(send_control_command("toggle"))
+            return 0
+        if args.show_ui:
+            asyncio.run(send_control_command("show"))
+            return 0
+        if args.hide_ui:
+            asyncio.run(send_control_command("hide"))
             return 0
         config = load_config()
         if args.yolo:

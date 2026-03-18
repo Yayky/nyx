@@ -334,6 +334,7 @@ class NyxSettingsEditor(Gtk.Box):
             "\n".join(
                 [
                     f"exec-once = {self._nyx_command()} --daemon",
+                    f"exec-once = /bin/sh -lc 'sleep 2; {self._nyx_command()} --show-ui'",
                     f"bind = SUPER, A, exec, {self._nyx_command()} --toggle-ui",
                     f"# Current Nyx summon_hotkey setting: {self.config.ui.summon_hotkey}",
                     "# Copy these lines into your Hyprland config, then run `hyprctl reload`.",

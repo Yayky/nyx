@@ -106,7 +106,7 @@ def test_no_args_exits_non_zero_with_guidance(capsys: pytest.CaptureFixture[str]
     captured = capsys.readouterr()
     assert exit_code == 2
     assert (
-        "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher/--toggle-ui."
+        "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher/--toggle-ui/--show-ui/--hide-ui."
         in captured.err
     )
 
@@ -187,6 +187,40 @@ def test_toggle_ui_sends_control_command(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert exit_code == 0
     assert called["command"] == "toggle"
+
+
+def test_show_ui_sends_control_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The show-ui flag should send one control command to the running daemon."""
+
+    called = {"command": None}
+
+    async def fake_send_control_command(command: str):
+        called["command"] = command
+        return {"ok": True, "visible": True}
+
+    monkeypatch.setattr("nyx.cli.send_control_command", fake_send_control_command)
+
+    exit_code = cli.main(["--show-ui"])
+
+    assert exit_code == 0
+    assert called["command"] == "show"
+
+
+def test_hide_ui_sends_control_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The hide-ui flag should send one control command to the running daemon."""
+
+    called = {"command": None}
+
+    async def fake_send_control_command(command: str):
+        called["command"] = command
+        return {"ok": True, "visible": False}
+
+    monkeypatch.setattr("nyx.cli.send_control_command", fake_send_control_command)
+
+    exit_code = cli.main(["--hide-ui"])
+
+    assert exit_code == 0
+    assert called["command"] == "hide"
 
 
 def test_voice_file_routes_transcript_once(

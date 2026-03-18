@@ -180,7 +180,7 @@ async def send_control_command(command: str) -> dict[str, Any]:
 
     if not CONTROL_SOCKET_PATH.exists():
         raise NyxControlError(
-            "Nyx daemon control socket is unavailable. Start `nyx --daemon` first, then use `nyx --toggle-ui`."
+            "Nyx daemon control socket is unavailable. Start `nyx --daemon` first, then use `nyx --toggle-ui`, `nyx --show-ui`, or `nyx --hide-ui`."
         )
 
     reader, writer = await asyncio.open_unix_connection(str(CONTROL_SOCKET_PATH))
