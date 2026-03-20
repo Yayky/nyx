@@ -18,14 +18,14 @@ import sys
 
 from nyx.bridges.factory import get_system_bridge
 from nyx.config import load_config
-from nyx.control import send_control_command
+from nyx.control import NyxControlError, send_control_command
 from nyx.daemon import NyxDaemon
 from nyx.intent_router import IntentRequest, IntentRouter
 from nyx.logging import configure_logging
 from nyx.monitors import SystemMonitorService
 from nyx.providers.registry import ProviderRegistry
 from nyx.skills import SkillsScheduler
-from nyx.ui import run_launcher
+from nyx.ui import run_launcher, run_workspace
 from nyx.voice import VoiceInputError, VoiceTranscriber
 
 
@@ -36,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--daemon", action="store_true", help="Run the Nyx daemon.")
     mode_group.add_argument("--launcher", action="store_true", help="Run the GTK launcher.")
+    mode_group.add_argument("--workspace", action="store_true", help="Run the Nyx Workspace window.")
+    mode_group.add_argument(
+        "--admin",
+        action="store_true",
+        help="Open the Nyx Workspace focused on the Database section.",
+    )
     mode_group.add_argument(
         "--toggle-ui",
         action="store_true",
@@ -86,13 +92,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_usage(sys.stderr)
         sys.stderr.write("Use either a text prompt, --voice, or --voice-file.\n")
         return 2
-    if args.voice_file and (args.daemon or args.launcher or args.toggle_ui or args.show_ui or args.hide_ui):
+    if args.voice_file and (
+        args.daemon
+        or args.launcher
+        or args.workspace
+        or args.admin
+        or args.toggle_ui
+        or args.show_ui
+        or args.hide_ui
+    ):
         parser.print_usage(sys.stderr)
         sys.stderr.write("--voice-file is only supported for one-shot CLI mode.\n")
         return 2
     if (
         not args.daemon
         and not args.launcher
+        and not args.workspace
+        and not args.admin
         and not args.toggle_ui
         and not args.show_ui
         and not args.hide_ui
@@ -102,7 +118,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ):
         parser.print_usage(sys.stderr)
         sys.stderr.write(
-            "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher/--toggle-ui/--show-ui/--hide-ui.\n"
+            "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher/--workspace/--admin/--toggle-ui/--show-ui/--hide-ui.\n"
         )
         return 2
 
@@ -119,6 +135,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         config = load_config()
         if args.yolo:
             config.system.yolo = True
+        if args.workspace or args.admin:
+            try:
+                asyncio.run(send_control_command("hide"))
+            except NyxControlError:
+                logger.debug("No running managed overlay to hide before launching workspace.")
+            return run_workspace(
+                config=config,
+                logger=logger,
+                initial_section="database" if args.admin else "workspace",
+            )
         bridge = get_system_bridge(config=config, logger=logger)
         provider_registry = ProviderRegistry(config=config, logger=logger)
         router = IntentRouter(

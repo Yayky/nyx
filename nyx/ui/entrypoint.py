@@ -50,12 +50,41 @@ def run_launcher(
     )
 
 
+def run_workspace(
+    *,
+    config: NyxConfig,
+    logger,
+    initial_section: str = "workspace",
+) -> int:
+    """Run the standalone GTK workspace window."""
+
+    try:
+        run_workspace_impl = _import_workspace_impl()
+    except ModuleNotFoundError as exc:
+        if exc.name == "gi":
+            raise RuntimeError(_missing_gtk_bindings_message()) from exc
+        raise
+    return run_workspace_impl(
+        config=config,
+        logger=logger,
+        initial_section=initial_section,
+    )
+
+
 def _import_launcher_impl():
     """Import the GTK launcher lazily after preload setup."""
 
     from nyx.ui.launcher import run_launcher as run_launcher_impl
 
     return run_launcher_impl
+
+
+def _import_workspace_impl():
+    """Import the GTK workspace lazily when requested."""
+
+    from nyx.ui.workspace import run_workspace as run_workspace_impl
+
+    return run_workspace_impl
 
 
 def _load_monitor_selection_state(

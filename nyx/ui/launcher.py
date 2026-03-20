@@ -6,6 +6,8 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import warnings
 
@@ -594,6 +596,34 @@ class NyxLauncherApplication(Gtk.Application):
         self.panel_window.refresh_from_controller(page_name)
         self.panel_window.present()
         self.panel_window.focus_prompt()
+
+    def open_workspace(self) -> None:
+        """Launch the standalone workspace window in a separate process."""
+
+        try:
+            subprocess.Popen(
+                [sys.executable, "-m", "nyx", "--workspace"],
+                start_new_session=True,
+            )
+        except OSError as exc:
+            self.logger.exception("Failed to launch Nyx Workspace.")
+            self._present_runtime_error(f"Workspace launch failed: {exc}")
+
+    def _present_runtime_error(self, message: str) -> None:
+        """Show one non-fatal runtime error in whichever overlay surface is visible."""
+
+        state = OverlayViewState(
+            response_text=message,
+            conversation_text=f"## Assistant\n\n{message}",
+            provider_name=self.config.models.default,
+            degraded=True,
+            yolo=self.config.system.yolo,
+        )
+        if self.panel_window is not None and self.panel_window.is_visible():
+            self.panel_window._apply_state(state)
+            return
+        if self.launcher_window is not None and self.launcher_window.is_visible():
+            self.launcher_window._apply_state(state)
 
     def _auto_close(self) -> bool:
         """Quit the launcher application during automated smoke checks."""

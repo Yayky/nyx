@@ -183,7 +183,12 @@ async def send_control_command(command: str) -> dict[str, Any]:
             "Nyx daemon control socket is unavailable. Start `nyx --daemon` first, then use `nyx --toggle-ui`, `nyx --show-ui`, or `nyx --hide-ui`."
         )
 
-    reader, writer = await asyncio.open_unix_connection(str(CONTROL_SOCKET_PATH))
+    try:
+        reader, writer = await asyncio.open_unix_connection(str(CONTROL_SOCKET_PATH))
+    except OSError as exc:
+        raise NyxControlError(
+            "Nyx daemon control socket is unavailable. Start `nyx --daemon` first, then use `nyx --toggle-ui`, `nyx --show-ui`, or `nyx --hide-ui`."
+        ) from exc
     try:
         writer.write(json.dumps({"command": command}).encode("utf-8") + b"\n")
         await writer.drain()

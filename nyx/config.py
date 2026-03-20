@@ -53,6 +53,13 @@ _SECTION_KEYS: dict[str, set[str]] = {
         "overlay_monitor",
         "launcher_width",
         "launcher_height",
+        "workspace_width",
+        "workspace_height",
+        "workspace_sidebar_width",
+        "workspace_thread_list_width",
+        "workspace_detail_width",
+        "workspace_default_mode",
+        "workspace_default_access",
         "panel_width",
         "panel_height",
         "panel_history_width",
@@ -203,6 +210,13 @@ class UiConfig:
     overlay_monitor: str
     launcher_width: int
     launcher_height: int
+    workspace_width: int
+    workspace_height: int
+    workspace_sidebar_width: int
+    workspace_thread_list_width: int
+    workspace_detail_width: int
+    workspace_default_mode: str
+    workspace_default_access: str
     panel_width: int
     panel_height: int
     panel_history_width: int
@@ -449,6 +463,13 @@ def render_config_toml(config: NyxConfig) -> str:
                 f'overlay_monitor = "{_escape_string(config.ui.overlay_monitor)}"',
                 f"launcher_width = {config.ui.launcher_width}",
                 f"launcher_height = {config.ui.launcher_height}",
+                f"workspace_width = {config.ui.workspace_width}",
+                f"workspace_height = {config.ui.workspace_height}",
+                f"workspace_sidebar_width = {config.ui.workspace_sidebar_width}",
+                f"workspace_thread_list_width = {config.ui.workspace_thread_list_width}",
+                f"workspace_detail_width = {config.ui.workspace_detail_width}",
+                f'workspace_default_mode = "{_escape_string(config.ui.workspace_default_mode)}"',
+                f'workspace_default_access = "{_escape_string(config.ui.workspace_default_access)}"',
                 f"panel_width = {rendered_panel_width}",
                 f"panel_height = {config.ui.panel_height}",
                 f"panel_history_width = {config.ui.panel_history_width}",
@@ -604,6 +625,13 @@ def _default_config_dict() -> dict[str, Any]:
             "overlay_monitor": "focused",
             "launcher_width": 760,
             "launcher_height": 258,
+            "workspace_width": 1480,
+            "workspace_height": 940,
+            "workspace_sidebar_width": 280,
+            "workspace_thread_list_width": 320,
+            "workspace_detail_width": 880,
+            "workspace_default_mode": "chat",
+            "workspace_default_access": "supervised",
             "panel_width": compute_panel_total_width(320, 900),
             "panel_height": 760,
             "panel_history_width": 320,
@@ -802,6 +830,13 @@ def _build_config(data: dict[str, Any], config_path: Path) -> NyxConfig:
             overlay_monitor=data["ui"]["overlay_monitor"],
             launcher_width=data["ui"]["launcher_width"],
             launcher_height=data["ui"]["launcher_height"],
+            workspace_width=data["ui"]["workspace_width"],
+            workspace_height=data["ui"]["workspace_height"],
+            workspace_sidebar_width=data["ui"]["workspace_sidebar_width"],
+            workspace_thread_list_width=data["ui"]["workspace_thread_list_width"],
+            workspace_detail_width=data["ui"]["workspace_detail_width"],
+            workspace_default_mode=data["ui"]["workspace_default_mode"],
+            workspace_default_access=data["ui"]["workspace_default_access"],
             panel_width=data["ui"]["panel_width"],
             panel_height=data["ui"]["panel_height"],
             panel_history_width=data["ui"]["panel_history_width"],

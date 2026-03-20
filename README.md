@@ -56,6 +56,7 @@ Implemented so far:
 - CLI mode
 - daemon mode
 - managed overlay UI
+- standalone Workspace window shell
 - local overlay conversation history
 - notes, tasks, memory, macros, skills
 - screen context and system bridge integrations
@@ -95,6 +96,13 @@ Current capabilities include:
   - sidebar history
   - settings editor
   - multi-monitor placement
+- standalone Workspace shell with:
+  - project pane
+  - thread pane
+  - large work surface
+  - dedicated Database navigation section
+  - tracked Git repo projects
+  - persisted workspace threads per project
 - project-aware features:
   - notes
   - tasks
@@ -254,6 +262,26 @@ python3 -m nyx --model codex-cli "summarize this project"
 python3 -m nyx --launcher
 ```
 
+### Open the Nyx Workspace window
+
+```bash
+python3 -m nyx --workspace
+```
+
+This launches the new long-session desktop workspace shell with:
+
+- a project-first workspace section
+- tracked Git repositories
+- persisted project-scoped workspace threads
+- provider, mode, and access selectors
+- a dedicated `Database` section in the left navigation
+
+If you want to open the same window focused on the Database area first:
+
+```bash
+python3 -m nyx --admin
+```
+
 ### Run Nyx as a background daemon
 
 ```bash
@@ -359,6 +387,36 @@ You can change settings in two ways:
 The public example lives here:
 
 - [config.example.toml](examples/config.example.toml)
+
+### Workspace shell settings
+
+The standalone workspace window uses these `[ui]` settings:
+
+- `workspace_width`
+- `workspace_height`
+- `workspace_sidebar_width`
+- `workspace_thread_list_width`
+- `workspace_detail_width`
+- `workspace_default_mode`
+- `workspace_default_access`
+
+The shell-only UI state is stored separately at:
+
+```text
+~/.local/state/nyx/workspace_state.json
+```
+
+Tracked workspace projects and threads are stored at:
+
+```text
+~/.local/state/nyx/workspace.db
+```
+
+Legacy JSON project-registry helpers still exist for early workspace-state compatibility at:
+
+```text
+~/.local/state/nyx/workspace_projects.json
+```
 
 ### Config sections
 
@@ -519,6 +577,7 @@ Bind a summon key:
 
 ```text
 bind = SUPER, A, exec, /absolute/path/to/your/.venv/bin/nyx --toggle-ui
+bind = SUPER, W, exec, /absolute/path/to/your/.venv/bin/nyx --workspace
 ```
 
 Then reload Hyprland:
