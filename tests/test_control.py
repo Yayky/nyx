@@ -23,6 +23,24 @@ async def test_send_control_command_reports_missing_socket(monkeypatch: pytest.M
 
 
 @pytest.mark.anyio
+async def test_send_control_command_reports_stale_socket(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Control commands should fail clearly when the socket path exists but rejects connections."""
+
+    socket_path = tmp_path / "control.sock"
+    socket_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(control, "CONTROL_SOCKET_PATH", socket_path)
+
+    async def fake_open_unix_connection(path: str):
+        del path
+        raise ConnectionRefusedError("refused")
+
+    monkeypatch.setattr(control.asyncio, "open_unix_connection", fake_open_unix_connection)
+
+    with pytest.raises(control.NyxControlError, match="Start `nyx --daemon` first"):
+        await control.send_control_command("toggle")
+
+
+@pytest.mark.anyio
 async def test_overlay_control_service_handles_status_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The control service should respond over a Unix socket with JSON state."""
 

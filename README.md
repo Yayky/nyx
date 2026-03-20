@@ -101,6 +101,8 @@ Current capabilities include:
   - thread pane
   - large work surface
   - dedicated Database navigation section
+  - tracked Git repo projects
+  - persisted workspace threads per project
 - project-aware features:
   - notes
   - tasks
@@ -269,6 +271,8 @@ python3 -m nyx --workspace
 This launches the new long-session desktop workspace shell with:
 
 - a project-first workspace section
+- tracked Git repositories
+- persisted project-scoped workspace threads
 - provider, mode, and access selectors
 - a dedicated `Database` section in the left navigation
 
@@ -402,7 +406,13 @@ The shell-only UI state is stored separately at:
 ~/.local/state/nyx/workspace_state.json
 ```
 
-Tracked workspace projects are stored at:
+Tracked workspace projects and threads are stored at:
+
+```text
+~/.local/state/nyx/workspace.db
+```
+
+Legacy JSON project-registry helpers still exist for early workspace-state compatibility at:
 
 ```text
 ~/.local/state/nyx/workspace_projects.json
