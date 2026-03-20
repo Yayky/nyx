@@ -106,7 +106,7 @@ def test_no_args_exits_non_zero_with_guidance(capsys: pytest.CaptureFixture[str]
     captured = capsys.readouterr()
     assert exit_code == 2
     assert (
-        "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher/--toggle-ui/--show-ui/--hide-ui."
+        "Provide a prompt, use --voice/--voice-file for one-shot voice input, or use --daemon/--launcher/--workspace/--admin/--toggle-ui/--show-ui/--hide-ui."
         in captured.err
     )
 
@@ -170,6 +170,74 @@ def test_launcher_flag_invokes_launcher_mode(
     assert exit_code == 0
     assert called["launcher"] is True
     assert called["prompt"] == "prefill prompt"
+
+
+def test_workspace_flag_invokes_workspace_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The workspace flag should execute the standalone workspace entry point."""
+
+    called = {"workspace": False, "initial_section": ""}
+
+    def fake_run_workspace(*, config, logger, initial_section: str = "workspace") -> int:
+        called["workspace"] = True
+        called["initial_section"] = initial_section
+        return 0
+
+    monkeypatch.setattr(
+        "nyx.cli.load_config",
+        lambda: load_config_from_module(tmp_path / "missing.toml"),
+    )
+    monkeypatch.setattr(
+        "nyx.cli.get_system_bridge",
+        lambda *args, **kwargs: pytest.fail("--workspace should not initialize the system bridge"),
+    )
+    monkeypatch.setattr(
+        "nyx.cli.ProviderRegistry",
+        lambda *args, **kwargs: pytest.fail("--workspace should not initialize provider routing"),
+    )
+    monkeypatch.setattr("nyx.cli.run_workspace", fake_run_workspace)
+
+    exit_code = cli.main(["--workspace"])
+
+    assert exit_code == 0
+    assert called["workspace"] is True
+    assert called["initial_section"] == "workspace"
+
+
+def test_admin_flag_opens_workspace_database_section(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The admin alias should open the workspace focused on Database."""
+
+    called = {"workspace": False, "initial_section": ""}
+
+    def fake_run_workspace(*, config, logger, initial_section: str = "workspace") -> int:
+        called["workspace"] = True
+        called["initial_section"] = initial_section
+        return 0
+
+    monkeypatch.setattr(
+        "nyx.cli.load_config",
+        lambda: load_config_from_module(tmp_path / "missing.toml"),
+    )
+    monkeypatch.setattr(
+        "nyx.cli.get_system_bridge",
+        lambda *args, **kwargs: pytest.fail("--admin should not initialize the system bridge"),
+    )
+    monkeypatch.setattr(
+        "nyx.cli.ProviderRegistry",
+        lambda *args, **kwargs: pytest.fail("--admin should not initialize provider routing"),
+    )
+    monkeypatch.setattr("nyx.cli.run_workspace", fake_run_workspace)
+
+    exit_code = cli.main(["--admin"])
+
+    assert exit_code == 0
+    assert called["workspace"] is True
+    assert called["initial_section"] == "database"
 
 
 def test_toggle_ui_sends_control_command(monkeypatch: pytest.MonkeyPatch) -> None:

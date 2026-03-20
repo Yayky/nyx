@@ -249,3 +249,40 @@ panel_conversation_ratio = 0.72
     assert saved.ui.panel_history_width == 290
     assert saved.ui.panel_chat_width == 810
     assert saved.ui.panel_conversation_ratio == 0.72
+
+
+def test_workspace_ui_settings_round_trip(tmp_path: Path) -> None:
+    """Workspace shell sizing and defaults should survive config round-trips."""
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[ui]
+workspace_width = 1600
+workspace_height = 980
+workspace_sidebar_width = 300
+workspace_thread_list_width = 360
+workspace_detail_width = 920
+workspace_default_mode = "plan"
+workspace_default_access = "full"
+""".strip()
+    )
+
+    config = load_config(config_path)
+    assert config.ui.workspace_width == 1600
+    assert config.ui.workspace_height == 980
+    assert config.ui.workspace_sidebar_width == 300
+    assert config.ui.workspace_thread_list_width == 360
+    assert config.ui.workspace_detail_width == 920
+    assert config.ui.workspace_default_mode == "plan"
+    assert config.ui.workspace_default_access == "full"
+
+    rendered = render_config_toml(config)
+    saved = save_config_text(rendered, tmp_path / "saved.toml")
+    assert saved.ui.workspace_width == 1600
+    assert saved.ui.workspace_height == 980
+    assert saved.ui.workspace_sidebar_width == 300
+    assert saved.ui.workspace_thread_list_width == 360
+    assert saved.ui.workspace_detail_width == 920
+    assert saved.ui.workspace_default_mode == "plan"
+    assert saved.ui.workspace_default_access == "full"

@@ -359,6 +359,43 @@ textview.nyx-settings-text border {
   background: alpha(__BG_CARD_ALT__, 0.14);
   border-radius: 14px;
 }
+
+.nyx-workspace-root {
+  background: transparent;
+}
+
+.nyx-workspace-header {
+  padding: 16px 18px 0 18px;
+}
+
+.nyx-workspace-title {
+  font-size: 15pt;
+}
+
+.nyx-workspace-shell {
+  min-height: 720px;
+}
+
+.nyx-workspace-nav-button {
+  min-width: 116px;
+  min-height: 38px;
+  border-radius: 14px;
+  border: 1px solid alpha(__BORDER_PRIMARY__, 0.28);
+  background: alpha(__BG_CARD_ALT__, 0.22);
+  color: __TEXT_PRIMARY__;
+}
+
+.nyx-workspace-nav-button.active {
+  background: alpha(__BG_CARD_ALT__, 0.58);
+  border-color: alpha(__BORDER_SOFT__, 0.42);
+}
+
+.nyx-workspace-card {
+  background: alpha(__BG_PANEL__, 0.18);
+  border: 1px solid alpha(__BORDER_PRIMARY__, 0.14);
+  border-radius: 18px;
+  padding: 14px 16px;
+}
 """
 
 
