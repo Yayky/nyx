@@ -189,6 +189,12 @@ def test_workspace_flag_invokes_workspace_mode(
         "nyx.cli.load_config",
         lambda: load_config_from_module(tmp_path / "missing.toml"),
     )
+    called["hide"] = None
+
+    async def fake_send_control_command(command: str):
+        called["hide"] = command
+        return {"ok": True, "visible": False}
+
     monkeypatch.setattr(
         "nyx.cli.get_system_bridge",
         lambda *args, **kwargs: pytest.fail("--workspace should not initialize the system bridge"),
@@ -197,11 +203,13 @@ def test_workspace_flag_invokes_workspace_mode(
         "nyx.cli.ProviderRegistry",
         lambda *args, **kwargs: pytest.fail("--workspace should not initialize provider routing"),
     )
+    monkeypatch.setattr("nyx.cli.send_control_command", fake_send_control_command)
     monkeypatch.setattr("nyx.cli.run_workspace", fake_run_workspace)
 
     exit_code = cli.main(["--workspace"])
 
     assert exit_code == 0
+    assert called["hide"] == "hide"
     assert called["workspace"] is True
     assert called["initial_section"] == "workspace"
 
@@ -223,6 +231,12 @@ def test_admin_flag_opens_workspace_database_section(
         "nyx.cli.load_config",
         lambda: load_config_from_module(tmp_path / "missing.toml"),
     )
+    called["hide"] = None
+
+    async def fake_send_control_command(command: str):
+        called["hide"] = command
+        return {"ok": True, "visible": False}
+
     monkeypatch.setattr(
         "nyx.cli.get_system_bridge",
         lambda *args, **kwargs: pytest.fail("--admin should not initialize the system bridge"),
@@ -231,13 +245,43 @@ def test_admin_flag_opens_workspace_database_section(
         "nyx.cli.ProviderRegistry",
         lambda *args, **kwargs: pytest.fail("--admin should not initialize provider routing"),
     )
+    monkeypatch.setattr("nyx.cli.send_control_command", fake_send_control_command)
     monkeypatch.setattr("nyx.cli.run_workspace", fake_run_workspace)
 
     exit_code = cli.main(["--admin"])
 
     assert exit_code == 0
+    assert called["hide"] == "hide"
     assert called["workspace"] is True
     assert called["initial_section"] == "database"
+
+
+def test_workspace_flag_ignores_missing_daemon_control_socket(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Workspace launch should still succeed when no managed overlay is running."""
+
+    called = {"workspace": False}
+
+    def fake_run_workspace(*, config, logger, initial_section: str = "workspace") -> int:
+        called["workspace"] = True
+        return 0
+
+    async def fake_send_control_command(command: str):
+        raise cli.NyxControlError("missing socket")
+
+    monkeypatch.setattr(
+        "nyx.cli.load_config",
+        lambda: load_config_from_module(tmp_path / "missing.toml"),
+    )
+    monkeypatch.setattr("nyx.cli.send_control_command", fake_send_control_command)
+    monkeypatch.setattr("nyx.cli.run_workspace", fake_run_workspace)
+
+    exit_code = cli.main(["--workspace"])
+
+    assert exit_code == 0
+    assert called["workspace"] is True
 
 
 def test_toggle_ui_sends_control_command(monkeypatch: pytest.MonkeyPatch) -> None:

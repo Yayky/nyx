@@ -18,7 +18,7 @@ import sys
 
 from nyx.bridges.factory import get_system_bridge
 from nyx.config import load_config
-from nyx.control import send_control_command
+from nyx.control import NyxControlError, send_control_command
 from nyx.daemon import NyxDaemon
 from nyx.intent_router import IntentRequest, IntentRouter
 from nyx.logging import configure_logging
@@ -136,6 +136,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.yolo:
             config.system.yolo = True
         if args.workspace or args.admin:
+            try:
+                asyncio.run(send_control_command("hide"))
+            except NyxControlError:
+                logger.debug("No running managed overlay to hide before launching workspace.")
             return run_workspace(
                 config=config,
                 logger=logger,
