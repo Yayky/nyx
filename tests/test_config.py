@@ -8,6 +8,7 @@ import tomllib
 import pytest
 
 from nyx.config import load_config, render_config_toml, save_config_text
+from nyx.ui.settings import build_hyprland_snippet
 
 
 def test_missing_config_uses_documented_defaults(tmp_path: Path) -> None:
@@ -286,3 +287,12 @@ workspace_default_access = "full"
     assert saved.ui.workspace_detail_width == 920
     assert saved.ui.workspace_default_mode == "plan"
     assert saved.ui.workspace_default_access == "full"
+
+
+def test_hyprland_snippet_mentions_workspace_shortcut() -> None:
+    """The settings snippet should include both overlay and workspace binds."""
+
+    snippet = build_hyprland_snippet("/tmp/nyx", "Super+A")
+
+    assert "bind = SUPER, A, exec, /tmp/nyx --toggle-ui" in snippet
+    assert "bind = SUPER, W, exec, /tmp/nyx --workspace" in snippet

@@ -567,6 +567,7 @@ Bind a summon key:
 
 ```text
 bind = SUPER, A, exec, /absolute/path/to/your/.venv/bin/nyx --toggle-ui
+bind = SUPER, W, exec, /absolute/path/to/your/.venv/bin/nyx --workspace
 ```
 
 Then reload Hyprland:

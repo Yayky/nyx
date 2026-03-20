@@ -21,6 +21,24 @@ from nyx.config import (
     save_config_text,
 )
 
+WORKSPACE_HOTKEY_HINT = "Super+W"
+
+
+def build_hyprland_snippet(nyx_command: str, summon_hotkey: str, workspace_hotkey: str = WORKSPACE_HOTKEY_HINT) -> str:
+    """Return the Hyprland config snippet shown in the sidebar settings."""
+
+    return "\n".join(
+        [
+            f"exec-once = {nyx_command} --daemon",
+            f"exec-once = /bin/sh -lc 'sleep 2; {nyx_command} --show-ui'",
+            f"bind = SUPER, A, exec, {nyx_command} --toggle-ui",
+            f"bind = SUPER, W, exec, {nyx_command} --workspace",
+            f"# Current Nyx summon_hotkey setting: {summon_hotkey}",
+            f"# Suggested workspace hotkey: {workspace_hotkey}",
+            "# Copy these lines into your Hyprland config, then run `hyprctl reload`.",
+        ]
+    )
+
 
 class NyxSettingsEditor(Gtk.Box):
     """Editable settings surface with Basic and Advanced tabs."""
@@ -331,14 +349,9 @@ class NyxSettingsEditor(Gtk.Box):
             entry.set_text(getattr(self.config.ui.theme, key))
 
         self.hotkey_snippet.set_label(
-            "\n".join(
-                [
-                    f"exec-once = {self._nyx_command()} --daemon",
-                    f"exec-once = /bin/sh -lc 'sleep 2; {self._nyx_command()} --show-ui'",
-                    f"bind = SUPER, A, exec, {self._nyx_command()} --toggle-ui",
-                    f"# Current Nyx summon_hotkey setting: {self.config.ui.summon_hotkey}",
-                    "# Copy these lines into your Hyprland config, then run `hyprctl reload`.",
-                ]
+            build_hyprland_snippet(
+                self._nyx_command(),
+                self.config.ui.summon_hotkey,
             )
         )
 

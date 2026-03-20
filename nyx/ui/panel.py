@@ -183,6 +183,12 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
             "Settings",
         )
         rail.append(self.settings_button)
+        self.workspace_button = self._rail_button(
+            "applications-development-symbolic",
+            self._on_workspace_clicked,
+            "Open workspace",
+        )
+        rail.append(self.workspace_button)
         self.new_button = self._rail_button(
             "document-new-symbolic",
             self._on_new_conversation_clicked,
@@ -886,6 +892,14 @@ class NyxPanelWindow(Gtk.ApplicationWindow):
 
         del button
         self._show_sidebar_page("settings")
+
+    def _on_workspace_clicked(self, button: Gtk.Button) -> None:
+        """Launch the standalone workspace window from the sidebar rail."""
+
+        del button
+        application = self.get_application()
+        if application is not None and hasattr(application, "open_workspace"):
+            application.open_workspace()
 
 
 def _enable_instant_tooltip(widget: Gtk.Widget) -> None:
